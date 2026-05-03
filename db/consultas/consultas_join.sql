@@ -25,23 +25,22 @@ FROM pedido_item pi
 JOIN pedido ped ON ped.id_pedido = pi.id_pedido
 JOIN producto pr ON pr.id_producto = pi.id_producto
 JOIN categoria_producto cat ON cat.id_categoria_producto = pr.id_categoria_producto
-WHERE ped.estado NOT IN ('cancelado')
+WHERE ped.estado IN ('finalizado', 'entregado')
 GROUP BY cat.nombre, pr.id_producto, pr.nombre, pr.precio
 ORDER BY ingresos_totales DESC;
 
 
 SELECT
-    i.nombre AS insumo,
-    i.unidad_medida,
-    i.stock_actual,
-    i.stock_minimo,
-    ROUND(i.stock_minimo - i.stock_actual, 3) AS deficit,
-    p.nombre AS proveedor,
-    p.telefono AS tel_proveedor,
-    p.email AS email_proveedor,
-    p.contacto_nombre AS contacto
-FROM insumo i
-JOIN proveedor p ON p.id_proveedor = i.id_proveedor
-WHERE i.stock_actual < i.stock_minimo
-  AND i.activo = TRUE
-ORDER BY deficit DESC;
+    ci.id_compra_insumo,
+    ci.fecha,
+    prov.nombre AS proveedor,
+    emp.nombre || ' ' || emp.apellido AS empleado,
+    COUNT(cid.id_insumo) AS lineas_detalle,
+    SUM(cid.cantidad * cid.costo_unitario) AS total_calculado,
+    ci.total AS total_registrado
+FROM compra_insumo ci
+JOIN proveedor prov ON prov.id_proveedor = ci.id_proveedor
+JOIN empleado emp ON emp.id_empleado = ci.id_empleado
+JOIN compra_insumo_detalle cid ON cid.id_compra_insumo = ci.id_compra_insumo
+GROUP BY ci.id_compra_insumo, ci.fecha, prov.nombre, emp.id_empleado, emp.nombre, emp.apellido, ci.total
+ORDER BY ci.fecha DESC;

@@ -103,7 +103,7 @@ INSERT INTO insumo (id_proveedor, nombre, unidad_medida, stock_actual, stock_min
 (3, 'Sal refinada', 'gramo', 10000.000, 2000.000, 0.0050),
 (3, 'Azúcar blanca', 'gramo', 10000.000, 2000.000, 0.0075),
 (4, 'Cebolla blanca', 'gramo', 8000.000, 2000.000, 0.0090),
-(4, 'Cilantro fresco', 'gramo', 3000.000, 800.000, 0.0180),
+(4, 'Cilantro fresco', 'gramo', 650.000, 800.000, 0.0180),
 (4, 'Tomate roma', 'gramo', 9000.000, 2500.000, 0.0100),
 (4, 'Lechuga romana', 'gramo', 4000.000, 1000.000, 0.0120),
 (5, 'Queso fresco', 'gramo', 6000.000, 1500.000, 0.0350),
@@ -120,9 +120,9 @@ INSERT INTO insumo (id_proveedor, nombre, unidad_medida, stock_actual, stock_min
 (11, 'Arroz', 'gramo', 12000.000, 3000.000, 0.0120),
 (11, 'Frijol negro', 'gramo', 10000.000, 2500.000, 0.0140),
 (12, 'Piña fresca', 'gramo', 5000.000, 1500.000, 0.0090),
-(12, 'Limón', 'unidad', 500.000, 150.000, 0.5000),
+(12, 'Limón', 'unidad', 100.000, 150.000, 0.5000),
 (16, 'Queso Oaxaca', 'gramo', 3000.000, 800.000, 0.0600),
-(18, 'Aguacate hass', 'unidad', 200.000, 60.000, 3.5000),
+(18, 'Aguacate hass', 'unidad', 45.000, 60.000, 3.5000),
 (25, 'Pollo deshebrado', 'gramo', 8000.000, 2000.000, 0.0550);
 
 -- categoria_producto
@@ -312,6 +312,17 @@ INSERT INTO compra_insumo_detalle (id_compra_insumo, id_insumo, cantidad, costo_
 (14,29, 80, 3.5000),
 (15,30, 6000, 0.0550);
 
+UPDATE compra_insumo ci
+SET total = resumen.total_calculado
+FROM (
+    SELECT
+        id_compra_insumo,
+        ROUND(SUM(cantidad * costo_unitario), 2) AS total_calculado
+    FROM compra_insumo_detalle
+    GROUP BY id_compra_insumo
+) AS resumen
+WHERE resumen.id_compra_insumo = ci.id_compra_insumo;
+
 -- pedido
 INSERT INTO pedido (id_cliente, id_cajero, id_cocinero, canal, estado, subtotal, total, fecha_creacion, fecha_aprobado, fecha_finalizado, fecha_entregado, notas) VALUES
 (2, 3, 13, 'online', 'entregado', 36.00, 36.00, '2026-03-05 12:15-06', '2026-03-05 12:17-06', '2026-03-05 12:35-06', '2026-03-05 12:45-06', 'Para llevar'),
@@ -477,6 +488,33 @@ INSERT INTO pedido_item_modificacion (id_pedido_item, id_extra, tipo, descripcio
 SELECT pi.id_pedido_item, NULL, 'quitar', 'Sin piña', 0.00
 FROM pedido_item pi WHERE pi.id_pedido = 13 LIMIT 1;
 
+UPDATE pedido p
+SET
+    subtotal = resumen.total_items,
+    total = resumen.total_items + resumen.total_extras
+FROM (
+    SELECT
+        ped.id_pedido,
+        COALESCE((
+            SELECT ROUND(SUM(pi.subtotal_linea), 2)
+            FROM pedido_item pi
+            WHERE pi.id_pedido = ped.id_pedido
+        ), 0) AS total_items,
+        COALESCE((
+            SELECT ROUND(SUM(pim.precio_extra), 2)
+            FROM pedido_item pi
+            JOIN pedido_item_modificacion pim ON pim.id_pedido_item = pi.id_pedido_item
+            WHERE pi.id_pedido = ped.id_pedido
+        ), 0) AS total_extras
+    FROM pedido ped
+    WHERE EXISTS (
+        SELECT 1
+        FROM pedido_item pi
+        WHERE pi.id_pedido = ped.id_pedido
+    )
+) AS resumen
+WHERE resumen.id_pedido = p.id_pedido;
+
 -- pago
 INSERT INTO pago (id_pedido, metodo, estado, monto, referencia_externa, fecha_intento, fecha_confirmacion, mensaje_error) VALUES
 (1, 'tarjeta', 'pagado', 36.00, 'ref_001_VISA_4242', '2026-03-05 12:16-06', '2026-03-05 12:16-06', NULL),
@@ -514,6 +552,11 @@ INSERT INTO pago (id_pedido, metodo, estado, monto, referencia_externa, fecha_in
 (33, 'tarjeta', 'pendiente', 45.00, NULL, '2026-04-23 12:00-06', NULL, NULL),
 (34, 'efectivo', 'pagado', 30.00, NULL, '2026-04-23 12:15-06', '2026-04-23 12:15-06', NULL),
 (35, 'tarjeta', 'pendiente', 60.00, NULL, '2026-04-23 12:30-06', NULL, NULL);
+
+UPDATE pago pg
+SET monto = p.total
+FROM pedido p
+WHERE p.id_pedido = pg.id_pedido;
 
 -- movimiento_inventario
 INSERT INTO movimiento_inventario (id_insumo, id_empleado, id_compra_insumo, tipo, cantidad, motivo, fecha) VALUES

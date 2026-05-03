@@ -6,9 +6,9 @@ Proyecto universitario — Bases de Datos 1.
 ## Stack
 
 - **Base de datos**: PostgreSQL 16 (Docker)
-- **Backend**: Node.js + Express + EJS
-- **Autenticación**: express-session + bcryptjs
-- **Estilos**: Bootstrap 5 (CDN)
+- **Backend**: Node.js + Express (API JSON) — express-session + bcryptjs
+- **Frontend**: React 18 + Vite + Bootstrap 5 + React Router v6
+- **Autenticación**: express-session con cookies, proxy Vite → backend
 
 ## Estructura del proyecto
 
@@ -18,23 +18,37 @@ TacosElPepe/
 │   ├── package.json
 │   ├── scripts/
 │   │   └── seed-passwords.js     <- asigna contraseñas reales a los empleados
-│   ├── src/
-│   │   ├── app.js
-│   │   ├── config/db.js
-│   │   ├── middleware/requireAuth.js
-│   │   └── routes/
-│   │       ├── auth.js
-│   │       ├── index.js
-│   │       ├── productos.js
-│   │       ├── insumos.js
-│   │       └── reportes.js
-│   └── views/
-│       ├── partials/
-│       ├── login.ejs
-│       ├── dashboard.ejs
-│       ├── productos/
-│       ├── insumos/
-│       └── reportes/
+│   └── src/
+│       ├── app.js                <- API JSON en puerto 3000
+│       ├── config/db.js
+│       ├── middleware/requireAuth.js
+│       └── routes/
+│           ├── auth.js           <- POST /api/auth/login, POST /api/auth/logout
+│           ├── productos.js      <- CRUD /api/productos
+│           ├── insumos.js        <- CRUD /api/insumos
+│           └── reportes.js       <- GET /api/reportes/ventas, /api/reportes/diario
+├── frontend/
+│   ├── package.json
+│   ├── vite.config.js            <- proxy /api → localhost:3000
+│   └── src/
+│       ├── App.jsx               <- rutas React Router
+│       ├── api/api.js            <- fetch wrapper con credentials
+│       ├── context/AuthContext.jsx
+│       ├── components/
+│       │   ├── Navbar.jsx
+│       │   └── ProtectedRoute.jsx
+│       └── pages/
+│           ├── Login.jsx
+│           ├── Dashboard.jsx
+│           ├── productos/
+│           │   ├── ProductosList.jsx
+│           │   └── ProductoForm.jsx
+│           ├── insumos/
+│           │   ├── InsumosList.jsx
+│           │   └── InsumoForm.jsx
+│           └── reportes/
+│               ├── ReporteVentas.jsx
+│               └── ReporteDiario.jsx
 ├── db/
 │   ├── consultas/                <- consultas SQL de la Parte II
 │   └── init/sql/                 <- scripts de inicialización
@@ -106,13 +120,33 @@ cd backend
 npm start
 ```
 
-La aplicación estará disponible en: **http://localhost:3000**
+La API estará disponible en: **http://localhost:3000**
 
 Para desarrollo con recarga automática:
 
 ```bash
 npm run dev
 ```
+
+### 6. Instalar dependencias del frontend
+
+```bash
+cd frontend
+npm install
+```
+
+### 7. Iniciar el frontend
+
+En otra terminal:
+
+```bash
+cd frontend
+npm run dev
+```
+
+La aplicación estará disponible en: **http://localhost:5173**
+
+El frontend se conecta al backend mediante el proxy de Vite — ambos procesos deben estar corriendo.
 
 ## Credenciales de prueba
 

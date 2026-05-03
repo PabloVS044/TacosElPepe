@@ -22,7 +22,6 @@ LEFT JOIN empleado caj ON caj.id_empleado = p.id_cajero
 LEFT JOIN empleado coc ON coc.id_empleado = p.id_cocinero
 LEFT JOIN pago pg ON pg.id_pedido = p.id_pedido;
 
-
 CREATE OR REPLACE VIEW v_stock_critico AS
 SELECT
     i.id_insumo,

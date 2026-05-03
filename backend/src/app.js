@@ -25,6 +25,8 @@ app.use(session({
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/productos', require('./routes/productos'));
 app.use('/api/insumos', require('./routes/insumos'));
+app.use('/api/consultas', require('./routes/consultas'));
+app.use('/api/compras-insumos', require('./routes/comprasInsumos'));
 app.use('/api/reportes', require('./routes/reportes'));
 
 app.use((req, res) => {

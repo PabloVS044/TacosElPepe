@@ -1,8 +1,7 @@
 BEGIN;
 
-DROP VIEW IF EXISTS v_productos_top_ventas CASCADE;
-DROP VIEW IF EXISTS v_ventas_diarias CASCADE;
-DROP VIEW IF EXISTS v_stock_insumos_critico CASCADE;
+DROP VIEW IF EXISTS v_resumen_pedidos CASCADE;
+DROP VIEW IF EXISTS v_stock_critico CASCADE;
 DROP TABLE IF EXISTS pago CASCADE;
 DROP TABLE IF EXISTS pedido_item_modificacion CASCADE;
 DROP TABLE IF EXISTS pedido_item CASCADE;

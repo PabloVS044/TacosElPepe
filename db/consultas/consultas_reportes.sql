@@ -21,6 +21,7 @@ FROM cliente c
 JOIN pedido p ON p.id_cliente = c.id_cliente
 JOIN pago pg ON pg.id_pedido = p.id_pedido
 WHERE pg.estado = 'pagado'
+  AND p.estado IN ('finalizado', 'entregado')
 GROUP BY c.id_cliente, c.nombre, c.apellido, c.email
 HAVING COUNT(p.id_pedido) >= 2
 ORDER BY total_pedidos DESC, gasto_total DESC;
@@ -33,7 +34,7 @@ WITH ventas_producto AS (
         SUM(pi.subtotal_linea) AS ingresos
     FROM pedido_item pi
     JOIN pedido p ON p.id_pedido = pi.id_pedido
-    WHERE p.estado NOT IN ('cancelado')
+    WHERE p.estado IN ('finalizado', 'entregado')
     GROUP BY pi.id_producto
 ),
 total_ingresos AS (
@@ -45,7 +46,7 @@ SELECT
     cat.nombre AS categoria,
     vp.unidades_vendidas,
     vp.ingresos,
-    ROUND((vp.ingresos / ti.total) * 100, 2) AS pct_del_total
+    ROUND((vp.ingresos / NULLIF(ti.total, 0)) * 100, 2) AS pct_del_total
 FROM ventas_producto vp
 JOIN producto pr ON pr.id_producto = vp.id_producto
 JOIN categoria_producto cat ON cat.id_categoria_producto = pr.id_categoria_producto
