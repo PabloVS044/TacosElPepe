@@ -6,52 +6,85 @@ Proyecto universitario — Bases de Datos 1.
 ## Stack
 
 - **Base de datos**: PostgreSQL 16 (Docker)
-- **Backend**: Node.js + Express (API JSON) — express-session + bcryptjs
-- **Frontend**: React 18 + Vite + Bootstrap 5 + React Router v6
-- **Autenticación**: express-session con cookies, proxy Vite → backend
+- **Backend**: Node.js + Express + `pg` (API JSON) — sesiones con `express-session` y contraseñas con `bcryptjs`
+- **Frontend**: React 18 + Vite + React Router v6 + Tailwind CSS 4
+- **Orquestación**: Docker Compose con `db`, `backend` y `frontend`
+- **Arquitectura**: backend por capas (`routes -> controllers -> services -> models -> queries`) y frontend dividido entre portal cliente y backoffice
 
 ## Estructura del proyecto
 
-```
+```text
 TacosElPepe/
 ├── backend/
+│   ├── Dockerfile
 │   ├── package.json
 │   ├── scripts/
-│   │   └── seed-passwords.js     <- asigna contraseñas reales a los empleados
+│   │   ├── ensure-runtime.js     <- espera la BD y prepara credenciales en Docker
+│   │   └── seed-passwords.js     <- reasigna contraseñas en desarrollo local
 │   └── src/
-│       ├── app.js                <- API JSON en puerto 3000
-│       ├── config/db.js
-│       ├── middleware/requireAuth.js
-│       └── routes/
-│           ├── auth.js           <- POST /api/auth/login, POST /api/auth/logout
-│           ├── productos.js      <- CRUD /api/productos
-│           ├── insumos.js        <- CRUD /api/insumos
-│           └── reportes.js       <- GET /api/reportes/ventas, /api/reportes/diario
+│       ├── app.js
+│       ├── server.js
+│       ├── config/
+│       │   ├── db.js
+│       │   └── session.js
+│       ├── controllers/          <- capa HTTP por módulo
+│       ├── middleware/           <- auth, manejo de errores y async handlers
+│       ├── models/               <- acceso a datos por dominio
+│       ├── queries/              <- SQL parametrizado
+│       ├── routes/
+│       │   ├── auth.js           <- login, logout y sesión actual
+│       │   ├── productos.js      <- CRUD de productos
+│       │   ├── insumos.js        <- CRUD y datos auxiliares de inventario
+│       │   ├── comprasInsumos.js <- compras de insumos transaccionales
+│       │   ├── pedidos.js        <- catálogo, clientes, pedidos y cambios de estado
+│       │   ├── reportes.js       <- ventas, diario, ranking y clientes frecuentes
+│       │   ├── consultas.js      <- joins, subqueries y views expuestos por API
+│       │   └── index.js
+│       ├── services/             <- reglas de negocio y transacciones
+│       └── utils/                <- errores y utilidades
 ├── frontend/
+│   ├── Dockerfile
 │   ├── package.json
-│   ├── vite.config.js            <- proxy /api → localhost:3000
+│   ├── vite.config.js            <- proxy /api → backend interno de Docker
 │   └── src/
-│       ├── App.jsx               <- rutas React Router
+│       ├── App.jsx               <- rutas públicas y protegidas
 │       ├── api/api.js            <- fetch wrapper con credentials
-│       ├── context/AuthContext.jsx
+│       ├── context/
+│       │   ├── AuthContext.jsx
+│       │   └── CustomerUiContext.jsx
 │       ├── components/
-│       │   ├── Navbar.jsx
-│       │   └── ProtectedRoute.jsx
+│       │   ├── BackofficeLayout.jsx
+│       │   ├── AppSidebar.jsx
+│       │   ├── ProductCustomizer.jsx
+│       │   ├── ProtectedRoute.jsx
+│       │   └── PublicOnlyRoute.jsx
 │       └── pages/
 │           ├── Login.jsx
 │           ├── Dashboard.jsx
+│           ├── analytics/
+│           │   └── SqlInsights.jsx
 │           ├── productos/
 │           │   ├── ProductosList.jsx
 │           │   └── ProductoForm.jsx
 │           ├── insumos/
 │           │   ├── InsumosList.jsx
-│           │   └── InsumoForm.jsx
+│           │   ├── InsumoForm.jsx
+│           │   └── StockCenter.jsx
+│           ├── pedidos/
+│           │   └── OrdersBoard.jsx
+│           ├── pos/
+│           │   └── PosTerminal.jsx
+│           ├── public/
+│           │   ├── ClientMenu.jsx
+│           │   ├── ClientCheckout.jsx
+│           │   └── ClientTracking.jsx
 │           └── reportes/
+│               ├── ReportsHub.jsx
 │               ├── ReporteVentas.jsx
 │               └── ReporteDiario.jsx
 ├── db/
-│   ├── consultas/                <- consultas SQL de la Parte II
-│   └── init/sql/                 <- scripts de inicialización
+│   ├── consultas/                <- joins, subqueries, reportes y transacciones de la Parte II
+│   └── init/sql/                 <- estructura, índices, views y datos de prueba
 ├── docker-compose.yml
 ├── .env.example
 └── README.md
@@ -117,25 +150,45 @@ Todos los empleados usan la contraseña `admin123` después del arranque de Dock
 
 ## Funcionalidades
 
-### Autenticación
-- Login y logout con sesión
-- Rutas protegidas — redirige al login si no hay sesión activa
+### Portal cliente
+- Menú público de autoservicio con catálogo, combos, disponibilidad y personalización de productos
+- Checkout para cliente final con captura de nombre, teléfono y método de pago
+- Seguimiento de pedido por código con refresco automático y línea de tiempo de estados
 
-### CRUD de Productos
-- Listado con categoría, precio y disponibilidad
-- Crear, editar y eliminar productos
-- Validación de campos obligatorios
-- Mensajes de error/éxito visibles al usuario
-- Manejo de FK (no permite eliminar si tiene pedidos)
+### Autenticación y backoffice
+- Login y logout con sesión persistida por cookie
+- Rutas protegidas y navegación según rol dentro del backoffice
+- Dashboard operativo con KPIs, pedidos activos, stock crítico y productos destacados
 
-### CRUD de Insumos
-- Listado con proveedor y alerta visual de stock crítico
-- Crear, editar y eliminar insumos
-- Validación de campos obligatorios
+### Ventas y pedidos
+- Terminal POS para mostrador con carrito, ticket, cliente general o registrado y personalizaciones
+- Monitor de pedidos para caja/cocina con detalle, cambio de estado y auto-refresh
+- Descuento automático de inventario al crear pedidos
+- Cancelación con restauración de inventario basada en movimientos registrados
 
-### Reportes
-- **Productos más vendidos** (`/reportes/ventas`): ordenados por ingresos, con porcentaje del total
-- **Ventas diarias** (`/reportes/diario`): últimos 30 días con conteo, total y ticket promedio
+### Inventario y abastecimiento
+- CRUD completo de productos
+- CRUD completo de insumos
+- Vista de reabastecimiento con stock crítico, proveedores y registro de compras
+- Compras de insumos ejecutadas dentro de transacciones para mantener consistencia
+
+### Reportes y analítica SQL
+- **Ventas** (`/reportes/ventas`): productos más vendidos, ingresos y participación sobre el total
+- **Diario** (`/reportes/diario`): ventas por día, ticket promedio y número de pedidos
+- **Clientes frecuentes** y **ranking de productos** desde el hub de reportes
+- Pantalla de analítica SQL con joins, subqueries y views consumidos desde la API
+
+## API principal
+
+- `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me`
+- `GET /api/productos/categorias`, `GET /api/productos`, `GET /api/productos/:id`, `POST /api/productos`, `PUT /api/productos/:id`, `DELETE /api/productos/:id`
+- `GET /api/insumos/proveedores`, `GET /api/insumos`, `GET /api/insumos/:id`, `POST /api/insumos`, `PUT /api/insumos/:id`, `DELETE /api/insumos/:id`
+- `POST /api/compras-insumos`
+- `GET /api/pedidos/catalogo`, `GET /api/pedidos/seguimiento/:codigo`, `POST /api/pedidos/online`
+- `GET /api/pedidos/clientes`, `GET /api/pedidos`, `GET /api/pedidos/:id`, `POST /api/pedidos`, `PATCH /api/pedidos/:id/estado`
+- `GET /api/reportes/*`
+- `GET /api/consultas/joins/*`, `GET /api/consultas/subqueries/*`, `GET /api/consultas/views/*`
+- `GET /api/health`
 
 ## Consultas SQL relevantes (Parte II)
 
@@ -183,6 +236,13 @@ En otra terminal:
 cd frontend
 npm install
 npm run dev
+```
+
+Si levantaste la base sin pasar por el contenedor `backend`, ejecuta una vez:
+
+```bash
+cd backend
+npm run seed
 ```
 
 Si cambias `POSTGRES_PORT` para publicar la base en otro puerto, ajusta también `DB_PORT`.
