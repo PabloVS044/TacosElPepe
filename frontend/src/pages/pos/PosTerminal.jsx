@@ -1,9 +1,20 @@
 import { useEffect, useMemo, useState } from 'react';
 import AppShell from '../../components/AppShell';
-import LoadingScreen from '../../components/LoadingScreen';
 import EmptyState from '../../components/EmptyState';
+import Icon from '../../components/Icon';
+import LoadingScreen from '../../components/LoadingScreen';
+import ProductCustomizer from '../../components/ProductCustomizer';
 import { api } from '../../api/api';
 import { useAuth } from '../../context/AuthContext';
+import { getProductGlyph } from '../../utils/catalog';
+import {
+  buildLineKey,
+  formatMoney,
+  normalizeLineConfig,
+  sameLineSelection,
+  summarizeCartLine,
+  toApiOrderItems,
+} from '../../utils/orders';
 
 const GENERAL_CUSTOMER = {
   id: 'general',
@@ -11,17 +22,24 @@ const GENERAL_CUSTOMER = {
   telefono: 'Mostrador',
 };
 
-const PAYMENT_METHODS = [
-  { value: 'efectivo', label: 'Efectivo', icon: 'cash-coin' },
-  { value: 'tarjeta', label: 'Tarjeta', icon: 'credit-card-2-front' },
-  { value: 'transferencia', label: 'Transferencia', icon: 'bank' },
-];
-
-const PAYMENT_HINTS = {
-  efectivo: 'Cobro inmediato en caja',
-  tarjeta: 'Pago con terminal',
-  transferencia: 'Transferencia validada',
+const NEW_CUSTOMER = {
+  id: 'new',
+  nombre: 'Registrar cliente',
+  telefono: 'Guardar para futuras compras',
 };
+
+const EMPTY_CUSTOMER_FORM = {
+  nombre: '',
+  apellido: '',
+  telefono: '',
+  email: '',
+  direccion: '',
+};
+
+const PAYMENT_METHODS = [
+  { value: 'efectivo', label: 'Efectivo', icon: 'cash', hint: 'Cobro inmediato en caja' },
+  { value: 'tarjeta', label: 'Tarjeta', icon: 'receipt', hint: 'Pago con terminal' },
+];
 
 const DESCRIPTION_CLAMP = {
   display: '-webkit-box',
@@ -30,129 +48,302 @@ const DESCRIPTION_CLAMP = {
   overflow: 'hidden',
 };
 
-function money(value) {
-  return `Q${Number(value || 0).toFixed(2)}`;
+function buildTicketItems(ticket, productById) {
+  return ticket
+    .map((line) => {
+      const product = productById.get(Number(line.id_producto));
+      if (!product) {
+        return null;
+      }
+
+      const extrasById = new Map(
+        (product.extras_disponibles || []).map((extra) => [Number(extra.id_extra), extra])
+      );
+      const ingredientsById = new Map(
+        (product.ingredientes_base || []).map((ingredient) => [Number(ingredient.id_insumo), ingredient])
+      );
+
+      const extras = (line.extras || [])
+        .map((extraLine) => {
+          const extra = extrasById.get(Number(extraLine.id_extra));
+          if (!extra) {
+            return null;
+          }
+
+          return {
+            ...extra,
+            cantidad: Number(extraLine.cantidad || 1),
+          };
+        })
+        .filter(Boolean);
+
+      const removals = (line.removals || []).map((removalLine) => {
+        const ingredient = ingredientsById.get(Number(removalLine.id_insumo));
+        return {
+          id_insumo: Number(removalLine.id_insumo),
+          nombre: ingredient?.nombre || `Ingrediente ${removalLine.id_insumo}`,
+        };
+      });
+
+      const quantity = Number(line.cantidad || 1);
+      const extrasTotalPerUnit = extras.reduce(
+        (sum, extra) => sum + (Number(extra.precio || 0) * extra.cantidad),
+        0
+      );
+      const unitTotal = Number(product.precio || 0) + extrasTotalPerUnit;
+
+      return {
+        key: line.key,
+        id_producto: Number(product.id_producto),
+        nombre: product.nombre,
+        descripcion: product.descripcion,
+        categoria: product.categoria,
+        precio: Number(product.precio || 0),
+        cantidad: quantity,
+        unit_total: unitTotal,
+        subtotal: unitTotal * quantity,
+        can_order: Boolean(product.can_order),
+        shortages: product.shortages || [],
+        extras,
+        removals,
+      };
+    })
+    .filter(Boolean);
+}
+
+function upsertTicketLine(current, productId, config, editingKey = null) {
+  const normalized = normalizeLineConfig(config);
+  const candidate = {
+    id_producto: Number(productId),
+    ...normalized,
+  };
+
+  const remaining = editingKey
+    ? current.filter((line) => line.key !== editingKey)
+    : current;
+  const duplicatedIndex = remaining.findIndex((line) => sameLineSelection(line, candidate));
+
+  if (duplicatedIndex >= 0) {
+    return remaining.map((line, index) => (
+      index === duplicatedIndex
+        ? { ...line, cantidad: Number(line.cantidad || 1) + normalized.cantidad }
+        : line
+    ));
+  }
+
+  if (editingKey) {
+    return current.map((line) => (
+      line.key === editingKey
+        ? { ...line, ...candidate, key: editingKey }
+        : line
+    ));
+  }
+
+  return [
+    ...current,
+    {
+      key: buildLineKey(),
+      ...candidate,
+    },
+  ];
 }
 
 export default function PosTerminal() {
   const { user } = useAuth();
-  const [productos, setProductos] = useState([]);
+  const [catalog, setCatalog] = useState([]);
   const [clientes, setClientes] = useState([GENERAL_CUSTOMER]);
-  const [categorias, setCategorias] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('Todos');
-  const [selectedCustomer, setSelectedCustomer] = useState(GENERAL_CUSTOMER);
+  const [selectedCustomerId, setSelectedCustomerId] = useState(GENERAL_CUSTOMER.id);
   const [paymentMethod, setPaymentMethod] = useState('efectivo');
   const [notes, setNotes] = useState('');
   const [ticketSent, setTicketSent] = useState('');
-  const [cart, setCart] = useState([]);
+  const [submitting, setSubmitting] = useState(false);
+  const [ticket, setTicket] = useState([]);
+  const [customerForm, setCustomerForm] = useState(EMPTY_CUSTOMER_FORM);
+  const [customizerState, setCustomizerState] = useState(null);
+
+  const loadTerminal = async () => {
+    setLoading(true);
+
+    try {
+      const [catalogResponse, clientResponse] = await Promise.all([
+        api.get('/pedidos/catalogo'),
+        api.get('/pedidos/clientes'),
+      ]);
+
+      setCatalog(catalogResponse.productos || []);
+      setClientes([
+        GENERAL_CUSTOMER,
+        ...(clientResponse.clientes || []).map((client) => ({
+          id: client.id_cliente,
+          nombre: client.cliente,
+          telefono: client.telefono || client.email || 'Registrado',
+        })),
+        NEW_CUSTOMER,
+      ]);
+      setError('');
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    let active = true;
-
-    Promise.all([api.get('/productos'), api.get('/consultas/subqueries/clientes-con-pagos')])
-      .then(([productResponse, clientResponse]) => {
-        if (!active) {
-          return;
-        }
-
-        const onlyAvailable = productResponse.productos.filter((producto) => producto.disponible);
-        setProductos(onlyAvailable);
-        setCategorias(['Todos', ...new Set(onlyAvailable.map((producto) => producto.categoria))]);
-        const clientOptions = [
-          GENERAL_CUSTOMER,
-          ...clientResponse.datos.map((client) => ({
-            id: client.id_cliente,
-            nombre: client.cliente,
-            telefono: client.telefono || client.email || 'Registrado',
-          })),
-        ];
-        setClientes(clientOptions);
-        setSelectedCustomer(clientOptions[0]);
-      })
-      .catch((requestError) => setError(requestError.message))
-      .finally(() => {
-        if (active) {
-          setLoading(false);
-        }
-      });
-
-    return () => {
-      active = false;
-    };
+    loadTerminal();
   }, []);
+
+  const categories = useMemo(
+    () => ['Todos', ...new Set(catalog.map((product) => product.categoria))],
+    [catalog]
+  );
+
+  const productById = useMemo(
+    () => new Map(catalog.map((product) => [Number(product.id_producto), product])),
+    [catalog]
+  );
 
   const filteredProducts = useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase();
 
-    return productos.filter((producto) => {
-      const matchesCategory = selectedCategory === 'Todos' || producto.categoria === selectedCategory;
+    return catalog.filter((product) => {
+      const matchesCategory = selectedCategory === 'Todos' || product.categoria === selectedCategory;
       const matchesSearch = !normalizedSearch
-        || producto.nombre.toLowerCase().includes(normalizedSearch)
-        || producto.descripcion?.toLowerCase().includes(normalizedSearch);
+        || product.nombre.toLowerCase().includes(normalizedSearch)
+        || product.descripcion?.toLowerCase().includes(normalizedSearch);
+
       return matchesCategory && matchesSearch;
     });
-  }, [productos, search, selectedCategory]);
+  }, [catalog, search, selectedCategory]);
 
+  const ticketItems = useMemo(
+    () => buildTicketItems(ticket, productById),
+    [ticket, productById]
+  );
+
+  const selectedCustomer = clientes.find((customer) => String(customer.id) === String(selectedCustomerId)) || GENERAL_CUSTOMER;
+  const hasBlockedItems = ticketItems.some((item) => !item.can_order);
   const summary = useMemo(() => {
-    const items = cart.reduce((acc, item) => acc + item.quantity, 0);
-    const subtotal = cart.reduce((acc, item) => acc + (item.quantity * Number(item.precio)), 0);
+    const items = ticketItems.reduce((acc, item) => acc + item.cantidad, 0);
+    const subtotal = ticketItems.reduce((acc, item) => acc + item.subtotal, 0);
 
     return {
       items,
       subtotal,
     };
-  }, [cart]);
+  }, [ticketItems]);
 
-  const addProduct = (producto) => {
-    setCart((current) => {
-      const index = current.findIndex((item) => item.id_producto === producto.id_producto);
-
-      if (index >= 0) {
-        return current.map((item, itemIndex) => (
-          itemIndex === index ? { ...item, quantity: item.quantity + 1 } : item
-        ));
-      }
-
-      return [...current, { ...producto, quantity: 1 }];
-    });
+  const addConfiguredLine = (product, config) => {
+    setTicket((current) => upsertTicketLine(current, product.id_producto, config));
     setTicketSent('');
   };
 
-  const updateLine = (idProducto, nextQuantity) => {
-    setCart((current) => current
-      .map((item) => (item.id_producto === idProducto ? { ...item, quantity: nextQuantity } : item))
-      .filter((item) => item.quantity > 0));
+  const addPlainProduct = (product) => {
+    addConfiguredLine(product, { cantidad: 1, extras: [], removals: [] });
+  };
+
+  const updateLine = (key, nextQuantity) => {
+    const normalizedQuantity = Number.parseInt(nextQuantity, 10) || 0;
+
+    if (normalizedQuantity <= 0) {
+      setTicket((current) => current.filter((item) => item.key !== key));
+      return;
+    }
+
+    setTicket((current) => current.map((item) => (
+      item.key === key ? { ...item, cantidad: normalizedQuantity } : item
+    )));
+    setTicketSent('');
+  };
+
+  const removeLine = (key) => {
+    setTicket((current) => current.filter((item) => item.key !== key));
     setTicketSent('');
   };
 
   const clearTicket = () => {
-    setCart([]);
+    setTicket([]);
     setNotes('');
+    setSelectedCustomerId(GENERAL_CUSTOMER.id);
     setPaymentMethod('efectivo');
+    setCustomerForm(EMPTY_CUSTOMER_FORM);
     setTicketSent('');
   };
 
-  const handleSimulatedSubmit = () => {
-    if (!cart.length) {
-      setTicketSent('Agrega al menos un producto antes de enviar el pedido.');
+  const handleSubmit = async () => {
+    setError('');
+    setTicketSent('');
+
+    if (!ticket.length) {
+      setTicketSent('Agrega al menos un producto antes de registrar el pedido.');
       return;
     }
 
-    const orderCode = `MOST-${String(Date.now()).slice(-6)}`;
-    setTicketSent(`Pedido ${orderCode} listo para integrar con el endpoint de creacion de pedidos.`);
+    if (hasBlockedItems) {
+      setError('Hay productos sin stock suficiente en el ticket actual.');
+      return;
+    }
+
+    if (selectedCustomerId === NEW_CUSTOMER.id) {
+      if (!customerForm.nombre.trim()) {
+        setError('Ingresa al menos el nombre del cliente para registrarlo.');
+        return;
+      }
+
+      if (!customerForm.telefono.trim() && !customerForm.email.trim()) {
+        setError('Para guardar un cliente nuevo, ingresa teléfono o correo.');
+        return;
+      }
+    }
+
+    setSubmitting(true);
+
+    try {
+      const payload = {
+        canal: 'mostrador',
+        metodo_pago: paymentMethod,
+        notas: notes,
+        items: toApiOrderItems(ticket),
+      };
+
+      if (selectedCustomerId === NEW_CUSTOMER.id) {
+        payload.customer = {
+          nombre: customerForm.nombre,
+          apellido: customerForm.apellido,
+          telefono: customerForm.telefono,
+          email: customerForm.email,
+          direccion: customerForm.direccion,
+        };
+      } else if (selectedCustomerId !== GENERAL_CUSTOMER.id) {
+        payload.id_cliente = Number(selectedCustomerId);
+      }
+
+      const response = await api.post('/pedidos', payload);
+
+      const successMessage = `Pedido ${response.pedido.codigo} registrado correctamente.`;
+      clearTicket();
+      setTicketSent(successMessage);
+      await loadTerminal();
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   if (loading) {
     return <LoadingScreen label="Cargando terminal POS..." />;
   }
 
+  const isRegisteringCustomer = selectedCustomerId === NEW_CUSTOMER.id;
+
   return (
     <AppShell
       title="Terminal POS"
-      subtitle="Pantalla simplificada para cajero. Botones grandes y flujo rapido para mostrador."
+      subtitle="Flujo rápido para mostrador con ticket real, personalizaciones y consumo de inventario."
       actions={(
         <div className="flex flex-wrap gap-3">
           <button
@@ -164,20 +355,22 @@ export default function PosTerminal() {
           </button>
           <button
             type="button"
-            className="inline-flex min-h-[3.5rem] items-center justify-center rounded-2xl bg-[var(--brand)] px-5 text-sm font-semibold text-white shadow-[0_12px_28px_rgba(114,14,16,0.22)] transition hover:bg-[var(--brand-dark)]"
-            onClick={handleSimulatedSubmit}
+            className="inline-flex min-h-[3.5rem] items-center justify-center rounded-2xl bg-[var(--brand)] px-5 text-sm font-semibold text-white shadow-[0_12px_28px_rgba(114,14,16,0.22)] transition hover:bg-[var(--brand-dark)] disabled:cursor-not-allowed disabled:opacity-60"
+            onClick={handleSubmit}
+            disabled={submitting}
           >
-            Confirmar pedido
+            {submitting ? 'Registrando...' : 'Confirmar pedido'}
           </button>
         </div>
       )}
     >
       {error && <div className="alert alert-danger">{error}</div>}
+      {ticketSent && <div className="alert alert-success">{ticketSent}</div>}
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1.35fr)_24rem] 2xl:grid-cols-[minmax(0,1.5fr)_26rem]">
         <section className="min-w-0 space-y-4">
           <div className="surface-card p-4 sm:p-5">
-            <div className="grid gap-4 xl:grid-cols-[minmax(0,1.12fr)_minmax(0,0.88fr)]">
+            <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
               <div className="min-w-0">
                 <div className="mb-2 text-[0.78rem] font-semibold uppercase tracking-[0.14em] text-[var(--app-text-muted)]">
                   Buscar producto
@@ -206,7 +399,7 @@ export default function PosTerminal() {
                     <div className="text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-[var(--app-text-muted)]">
                       Total
                     </div>
-                    <div className="mt-1 text-xl font-extrabold text-[var(--brand)]">{money(summary.subtotal)}</div>
+                    <div className="mt-1 text-xl font-extrabold text-[var(--brand)]">{formatMoney(summary.subtotal)}</div>
                   </div>
                 </div>
               </div>
@@ -214,18 +407,18 @@ export default function PosTerminal() {
               <div className="min-w-0">
                 <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                   <div className="text-[0.78rem] font-semibold uppercase tracking-[0.14em] text-[var(--app-text-muted)]">
-                    Categoria
+                    Categoría
                   </div>
-                  <div className="text-sm text-[var(--app-text-muted)]">Filtro rapido</div>
+                  <div className="text-sm text-[var(--app-text-muted)]">Filtro rápido</div>
                 </div>
                 <div className="-mx-1 overflow-x-auto pb-1">
                   <div className="flex min-w-max gap-2 px-1">
-                    {categorias.map((categoria) => {
-                      const active = selectedCategory === categoria;
+                    {categories.map((category) => {
+                      const active = selectedCategory === category;
 
                       return (
                         <button
-                          key={categoria}
+                          key={category}
                           type="button"
                           className={[
                             'inline-flex min-h-[3.25rem] items-center justify-center rounded-2xl border px-4 py-3 text-center text-sm font-semibold transition',
@@ -233,9 +426,9 @@ export default function PosTerminal() {
                               ? 'border-[var(--brand)] bg-[var(--brand)] text-white shadow-[0_10px_24px_rgba(114,14,16,0.18)]'
                               : 'border-[var(--app-border)] bg-white text-[var(--app-text)] hover:border-[var(--brand)] hover:text-[var(--brand)]',
                           ].join(' ')}
-                          onClick={() => setSelectedCategory(categoria)}
+                          onClick={() => setSelectedCategory(category)}
                         >
-                          {categoria}
+                          {category}
                         </button>
                       );
                     })}
@@ -248,7 +441,7 @@ export default function PosTerminal() {
           <div className="surface-card p-4 sm:p-5">
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
               <div>
-                <div className="small text-uppercase text-muted fw-semibold">Catalogo rapido</div>
+                <div className="small text-uppercase text-muted fw-semibold">Catálogo rápido</div>
                 <h2 className="h4 mb-0">
                   {selectedCategory === 'Todos' ? 'Todos los productos' : selectedCategory}
                 </h2>
@@ -258,7 +451,7 @@ export default function PosTerminal() {
                   {filteredProducts.length} productos
                 </span>
                 <span className="badge rounded-pill soft-warning px-3 py-2">
-                  Tap o click para agregar
+                  Tocar para agregar
                 </span>
               </div>
             </div>
@@ -267,49 +460,75 @@ export default function PosTerminal() {
               <EmptyState
                 icon="search"
                 title="No hay productos para este filtro"
-                description="Prueba otra categoria o cambia el texto de busqueda."
+                description="Prueba otra categoría o cambia el texto de búsqueda."
               />
             ) : (
               <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-3">
-                {filteredProducts.map((producto) => (
-                  <button
-                    key={producto.id_producto}
-                    type="button"
-                    className="group flex min-h-[12rem] flex-col justify-between rounded-[1.35rem] border border-[var(--app-border)] bg-white p-4 text-left shadow-[var(--shadow-soft)] transition hover:-translate-y-0.5 hover:border-[var(--brand)] active:scale-[0.99]"
-                    onClick={() => addProduct(producto)}
+                {filteredProducts.map((product) => (
+                  <article
+                    key={product.id_producto}
+                    className={[
+                      'flex min-h-[13rem] flex-col justify-between rounded-[1.35rem] border p-4 shadow-[var(--shadow-soft)]',
+                      product.can_order
+                        ? 'border-[var(--app-border)] bg-white'
+                        : 'border-red-200 bg-red-50/70',
+                    ].join(' ')}
                   >
-                    <div className="d-flex justify-content-between gap-3 align-items-start">
+                    <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <div className="mb-2 text-[0.72rem] font-semibold uppercase tracking-[0.12em] text-[var(--app-text-muted)]">
-                          {producto.categoria}
+                        <div className="mb-2 flex items-center gap-2">
+                          <span className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--app-surface-soft)] text-2xl text-[var(--brand)]">
+                            <Icon name={getProductGlyph(product)} className="h-6 w-6" />
+                          </span>
+                          <span className="rounded-full border border-[var(--app-border)] bg-[var(--app-surface-soft)] px-3 py-1 text-xs font-semibold uppercase tracking-[0.08em] text-[var(--app-text-muted)]">
+                            {product.categoria}
+                          </span>
                         </div>
-                        <div className="mb-2 text-[1.2rem] font-bold leading-[1.15] text-[var(--app-text)]">
-                          {producto.nombre}
+                        <div className="mb-2 text-[1.15rem] font-bold leading-[1.15] text-[var(--app-text)]">
+                          {product.nombre}
                         </div>
                         <div className="text-sm leading-5 text-[var(--app-text-muted)]" style={DESCRIPTION_CLAMP}>
-                          {producto.descripcion || 'Disponible para mostrador.'}
+                          {product.descripcion || 'Disponible para mostrador.'}
                         </div>
                       </div>
                       <span className="inline-flex min-h-[2.35rem] shrink-0 items-center rounded-full border border-[var(--app-border)] bg-[var(--app-surface-soft)] px-3 text-sm font-semibold text-[var(--app-text)]">
-                        {money(producto.precio)}
+                        {formatMoney(product.precio)}
                       </span>
                     </div>
 
-                    <div className="mt-4 flex items-end justify-between gap-3">
-                      <div>
-                        <div className="text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-[var(--app-text-muted)]">
-                          Precio
-                        </div>
-                        <div className="mt-1 text-[1.6rem] font-extrabold leading-none text-[var(--brand)]">
-                          {money(producto.precio)}
-                        </div>
+                    {!product.can_order && (
+                      <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                        {product.shortages?.[0]
+                          ? `Sin stock suficiente de ${product.shortages[0].nombre}.`
+                          : 'Producto no disponible ahora.'}
                       </div>
-                      <span className="inline-flex min-h-[3rem] items-center gap-2 rounded-2xl border border-[var(--app-border)] bg-[var(--app-surface-soft)] px-4 text-sm font-bold text-[var(--brand)] transition group-hover:border-[var(--brand)] group-hover:bg-[var(--brand)] group-hover:text-white">
-                        <i className="bi bi-plus-circle" />
-                        Agregar
-                      </span>
+                    )}
+
+                    <div className="mt-4 grid gap-2">
+                      <button
+                        type="button"
+                        className="inline-flex min-h-[3rem] items-center justify-center gap-2 rounded-2xl bg-[var(--brand)] px-4 text-sm font-bold text-white transition hover:bg-[var(--brand-dark)] disabled:cursor-not-allowed disabled:opacity-60"
+                        onClick={() => addPlainProduct(product)}
+                        disabled={!product.can_order}
+                      >
+                        <Icon name="addCircle" className="h-4 w-4" />
+                        Agregar rápido
+                      </button>
+                      <button
+                        type="button"
+                        className="inline-flex min-h-[3rem] items-center justify-center gap-2 rounded-2xl border border-[var(--app-border)] bg-white px-4 text-sm font-semibold text-[var(--app-text)] transition hover:border-[var(--brand)] hover:text-[var(--brand)] disabled:cursor-not-allowed disabled:opacity-50"
+                        onClick={() => setCustomizerState({
+                          product,
+                          lineKey: null,
+                          initialConfig: null,
+                        })}
+                        disabled={!product.can_order}
+                      >
+                        <Icon name="sliders" className="h-4 w-4" />
+                        Personalizar
+                      </button>
                     </div>
-                  </button>
+                  </article>
                 ))}
               </div>
             )}
@@ -319,189 +538,299 @@ export default function PosTerminal() {
         <aside className="min-w-0 xl:sticky xl:top-6 xl:self-start">
           <div className="space-y-4">
             <div className="surface-card p-4 sm:p-5">
-              <div className="mb-4 d-flex justify-content-between align-items-center gap-3">
+              <div className="mb-4 flex items-start justify-between gap-3">
                 <div>
                   <div className="small text-uppercase text-muted fw-semibold">Pedido actual</div>
-                  <h2 className="h4 mb-0">{summary.items} articulos</h2>
+                  <h2 className="h4 mb-0">{summary.items} artículos</h2>
                 </div>
-                <div className="rounded-2xl bg-[var(--warning-soft)] px-3 py-2 text-right">
-                  <div className="text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-[#8a5b00]">Total</div>
-                  <div className="text-lg font-extrabold text-[#8a5b00]">{money(summary.subtotal)}</div>
+                <div className="rounded-full bg-amber-100 px-3 py-2 text-sm font-bold text-amber-800">
+                  {formatMoney(summary.subtotal)}
                 </div>
               </div>
 
-              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
-                <div className="surface-panel px-4 py-4">
-                  <div className="small text-uppercase text-muted fw-semibold mb-2">Atiende</div>
-                  <div className="fw-semibold">{user?.nombre} {user?.apellido}</div>
-                  <div className="small text-muted mt-1">Caja activa</div>
+              {hasBlockedItems && (
+                <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                  El ticket tiene productos sin stock suficiente.
                 </div>
-                <div className="surface-panel px-4 py-4">
-                  <div className="small text-uppercase text-muted fw-semibold mb-2">Canal</div>
-                  <div className="fw-semibold">Mostrador</div>
-                  <div className="small text-muted mt-1">Flujo rapido para atencion presencial</div>
+              )}
+
+              <div className="space-y-4">
+                <div>
+                  <label className="form-label text-muted small text-uppercase">Cliente</label>
+                  <select
+                    className="form-select form-select-lg"
+                    value={selectedCustomerId}
+                    onChange={(event) => setSelectedCustomerId(event.target.value)}
+                  >
+                    {clientes.map((customer) => (
+                      <option key={customer.id} value={customer.id}>
+                        {customer.nombre}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="mt-2 text-sm text-[var(--app-text-muted)]">
+                    {selectedCustomer.telefono}
+                  </div>
+                  {!isRegisteringCustomer && selectedCustomerId === GENERAL_CUSTOMER.id && (
+                    <div className="mt-2 rounded-2xl border border-[var(--app-border)] bg-[var(--app-surface-soft)] px-3 py-2 text-sm text-[var(--app-text-muted)]">
+                      Usa esta opción si el cliente no quiere quedar registrado para futuras compras.
+                    </div>
+                  )}
+                  {!isRegisteringCustomer && selectedCustomerId !== GENERAL_CUSTOMER.id && (
+                    <div className="mt-2 rounded-2xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+                      Este cliente quedará vinculado al pedido para futuras compras y reportes.
+                    </div>
+                  )}
+                </div>
+
+                {isRegisteringCustomer && (
+                  <div className="grid gap-3">
+                    <div className="rounded-3xl border border-[var(--app-border)] bg-[var(--app-surface-soft)] px-4 py-4">
+                      <div className="text-[0.72rem] font-semibold uppercase tracking-[0.12em] text-[var(--app-text-muted)]">
+                        Nuevo cliente
+                      </div>
+                      <div className="mt-2 text-sm leading-6 text-[var(--app-text-muted)]">
+                        Este cliente quedará guardado en la base para compras futuras. Si no quiere registrarse, usa "Cliente general".
+                      </div>
+                    </div>
+
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div>
+                        <label className="form-label text-muted small text-uppercase">Nombre *</label>
+                        <input
+                          className="form-control"
+                          value={customerForm.nombre}
+                          onChange={(event) => setCustomerForm((current) => ({ ...current, nombre: event.target.value }))}
+                          placeholder="Nombre"
+                        />
+                      </div>
+                      <div>
+                        <label className="form-label text-muted small text-uppercase">Apellido</label>
+                        <input
+                          className="form-control"
+                          value={customerForm.apellido}
+                          onChange={(event) => setCustomerForm((current) => ({ ...current, apellido: event.target.value }))}
+                          placeholder="Apellido"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div>
+                        <label className="form-label text-muted small text-uppercase">Teléfono</label>
+                        <input
+                          className="form-control"
+                          value={customerForm.telefono}
+                          onChange={(event) => setCustomerForm((current) => ({ ...current, telefono: event.target.value }))}
+                          placeholder="502..."
+                        />
+                      </div>
+                      <div>
+                        <label className="form-label text-muted small text-uppercase">Correo</label>
+                        <input
+                          className="form-control"
+                          value={customerForm.email}
+                          onChange={(event) => setCustomerForm((current) => ({ ...current, email: event.target.value }))}
+                          placeholder="correo@ejemplo.com"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="form-label text-muted small text-uppercase">Dirección o referencia</label>
+                      <input
+                        className="form-control"
+                        value={customerForm.direccion}
+                        onChange={(event) => setCustomerForm((current) => ({ ...current, direccion: event.target.value }))}
+                        placeholder="Dirección, colonia o referencia"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                <div>
+                  <label className="form-label text-muted small text-uppercase">Método de pago</label>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {PAYMENT_METHODS.map((method) => {
+                      const active = paymentMethod === method.value;
+
+                      return (
+                        <button
+                          key={method.value}
+                          type="button"
+                          className={[
+                            'rounded-[1.35rem] border px-4 py-4 text-left transition',
+                            active
+                              ? 'border-[var(--brand)] bg-[var(--brand)] text-white shadow-[0_10px_24px_rgba(114,14,16,0.18)]'
+                              : 'border-[var(--app-border)] bg-white text-[var(--app-text)] hover:border-[var(--brand)]',
+                          ].join(' ')}
+                          onClick={() => setPaymentMethod(method.value)}
+                        >
+                          <div className="flex items-center gap-2 text-sm font-semibold">
+                            <Icon name={method.icon} className="h-4 w-4" />
+                            {method.label}
+                          </div>
+                          <div className={`mt-2 text-xs ${active ? 'text-white/80' : 'text-[var(--app-text-muted)]'}`}>
+                            {method.hint}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="form-label text-muted small text-uppercase">Notas</label>
+                  <textarea
+                    rows="3"
+                    className="form-control"
+                    value={notes}
+                    onChange={(event) => setNotes(event.target.value)}
+                    placeholder="Sin cebolla, extra salsa, para llevar..."
+                  />
                 </div>
               </div>
             </div>
 
             <div className="surface-card p-4 sm:p-5">
-              <div>
-                <label className="form-label text-muted small text-uppercase">Cliente</label>
-                <select
-                  className="form-select form-select-lg"
-                  value={selectedCustomer.id}
-                  onChange={(event) => {
-                    const nextCustomer = clientes.find((client) => String(client.id) === event.target.value);
-                    setSelectedCustomer(nextCustomer || GENERAL_CUSTOMER);
-                  }}
-                >
-                  {clientes.map((client) => (
-                    <option key={client.id} value={client.id}>
-                      {client.nombre}
-                    </option>
-                  ))}
-                </select>
-                <div className="small text-muted mt-2">{selectedCustomer.telefono}</div>
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div>
+                  <div className="small text-uppercase text-muted fw-semibold">Ticket</div>
+                  <h2 className="h5 mb-0">Detalle del pedido</h2>
+                </div>
+                <div className="font-semibold text-[var(--brand)]">{formatMoney(summary.subtotal)}</div>
               </div>
 
-              <div className="mt-4">
-                <label className="form-label text-muted small text-uppercase">Metodo de pago</label>
-                <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-1">
-                  {PAYMENT_METHODS.map((method) => {
-                    const active = paymentMethod === method.value;
+              {!ticketItems.length ? (
+                <EmptyState
+                  icon="receipt"
+                  title="Sin productos en el ticket"
+                  description="Agrega productos del catálogo para registrar un nuevo pedido."
+                />
+              ) : (
+                <>
+                  <div className="max-h-[28rem] space-y-3 overflow-y-auto pr-1">
+                    {ticketItems.map((item) => {
+                      const selections = summarizeCartLine(item);
 
-                    return (
-                      <button
-                        key={method.value}
-                        type="button"
-                        className={[
-                          'w-full rounded-[1.2rem] border px-4 py-4 text-left transition',
-                          active
-                            ? 'border-[var(--brand)] bg-[var(--brand)] text-white shadow-[0_10px_24px_rgba(114,14,16,0.18)]'
-                            : 'border-[var(--app-border)] bg-white text-[var(--app-text)] hover:border-[var(--brand)] hover:text-[var(--brand)]',
-                        ].join(' ')}
-                        onClick={() => setPaymentMethod(method.value)}
-                      >
-                        <div className="d-flex justify-content-between align-items-center gap-3">
-                          <div className="d-flex align-items-center gap-3 min-w-0">
-                            <span
-                              className={[
-                                'inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border',
-                                active ? 'border-white/30 bg-white/12 text-white' : 'border-[var(--app-border)] bg-[var(--app-surface-soft)] text-[var(--brand)]',
-                              ].join(' ')}
-                            >
-                              <i className={`bi bi-${method.icon}`} />
-                            </span>
+                      return (
+                        <div key={item.key} className="surface-panel px-3 py-3">
+                          <div className="flex items-start justify-between gap-3">
                             <div className="min-w-0">
-                              <div className="fw-semibold">{method.label}</div>
-                              <div className={`small ${active ? 'text-white/75' : 'text-muted'}`}>
-                                {PAYMENT_HINTS[method.value]}
+                              <div className="font-semibold text-[var(--app-text)]">{item.nombre}</div>
+                              <div className="mt-1 text-sm text-[var(--app-text-muted)]">
+                                {formatMoney(item.unit_total)} por unidad
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-red-200 bg-red-50 text-red-700 transition hover:bg-red-100"
+                              onClick={() => removeLine(item.key)}
+                            >
+                              <Icon name="trash" className="h-4 w-4" />
+                            </button>
+                          </div>
+
+                          {selections.length > 0 && (
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              {selections.map((selection) => (
+                                <span key={`${item.key}-${selection}`} className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-[var(--app-text-muted)]">
+                                  {selection}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+
+                          <div className="mt-3 flex flex-col gap-3">
+                            <button
+                              type="button"
+                              className="inline-flex min-h-[2.75rem] items-center justify-center gap-2 rounded-2xl border border-[var(--app-border)] bg-white px-4 text-sm font-semibold text-[var(--app-text)] transition hover:border-[var(--brand)] hover:text-[var(--brand)]"
+                              onClick={() => {
+                                const rawLine = ticket.find((line) => line.key === item.key);
+                                const product = productById.get(item.id_producto);
+                                if (!rawLine || !product) {
+                                  return;
+                                }
+
+                                setCustomizerState({
+                                  product,
+                                  lineKey: item.key,
+                                  initialConfig: rawLine,
+                                });
+                              }}
+                            >
+                              <Icon name="sliders" className="h-4 w-4" />
+                              Editar configuración
+                            </button>
+
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-[var(--app-border)] bg-white text-lg font-bold text-[var(--app-text)] transition hover:border-[var(--brand)] hover:text-[var(--brand)]"
+                                  onClick={() => updateLine(item.key, item.cantidad - 1)}
+                                >
+                                  -
+                                </button>
+                                <div className="min-w-[3rem] rounded-xl border border-[var(--app-border)] bg-white px-3 py-2 text-center font-semibold text-[var(--app-text)]">
+                                  {item.cantidad}
+                                </div>
+                                <button
+                                  type="button"
+                                  className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-[var(--app-border)] bg-white text-lg font-bold text-[var(--app-text)] transition hover:border-[var(--brand)] hover:text-[var(--brand)]"
+                                  onClick={() => updateLine(item.key, item.cantidad + 1)}
+                                >
+                                  +
+                                </button>
+                              </div>
+                              <div className="text-right">
+                                <div className="text-sm text-[var(--app-text-muted)]">Subtotal</div>
+                                <div className="font-bold text-[var(--app-text)]">{formatMoney(item.subtotal)}</div>
                               </div>
                             </div>
                           </div>
-                          <span className={`small fw-semibold uppercase ${active ? 'text-white' : 'text-muted'}`}>
-                            {active ? 'Activo' : 'Elegir'}
-                          </span>
                         </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
+                      );
+                    })}
+                  </div>
 
-              <div className="mt-4">
-                <label className="form-label text-muted small text-uppercase">Notas</label>
-                <textarea
-                  className="form-control"
-                  rows={3}
-                  value={notes}
-                  onChange={(event) => setNotes(event.target.value)}
-                  placeholder="Sin cebolla, extra salsa, para llevar..."
-                />
-              </div>
-            </div>
-
-            <div className="surface-card p-4 sm:p-5">
-              <div className="d-flex justify-content-between align-items-center gap-3 mb-3">
-                <h3 className="h5 mb-0">Detalle del ticket</h3>
-                {cart.length > 0 && (
-                  <button type="button" className="btn btn-sm btn-outline-secondary" onClick={clearTicket}>
-                    Vaciar
-                  </button>
-                )}
-              </div>
-
-              {!cart.length ? (
-                <EmptyState
-                  icon="cart"
-                  title="Ticket vacio"
-                  description="Toca un producto del catalogo para agregarlo al pedido."
-                />
-              ) : (
-                <div className="space-y-3 max-h-[24rem] overflow-y-auto pr-1">
-                  {cart.map((item) => (
-                    <div key={item.id_producto} className="surface-panel p-3">
-                      <div className="d-flex justify-content-between align-items-start gap-3 mb-3">
-                        <div className="min-w-0">
-                          <div className="fw-semibold">{item.nombre}</div>
-                          <div className="small text-muted mt-1">{money(item.precio)} c/u</div>
-                        </div>
-                        <div className="fw-semibold shrink-0">{money(item.quantity * Number(item.precio))}</div>
-                      </div>
-
-                      <div className="d-flex flex-wrap align-items-center gap-2">
-                        <button
-                          type="button"
-                          className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-[var(--app-border)] bg-white text-lg font-bold text-[var(--app-text)] transition hover:border-[var(--brand)] hover:text-[var(--brand)]"
-                          onClick={() => updateLine(item.id_producto, item.quantity - 1)}
-                        >
-                          -
-                        </button>
-                        <div className="min-w-[3.25rem] rounded-xl border border-[var(--app-border)] bg-white px-4 py-2 text-center fw-semibold">
-                          {item.quantity}
-                        </div>
-                        <button
-                          type="button"
-                          className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-[var(--app-border)] bg-white text-lg font-bold text-[var(--app-text)] transition hover:border-[var(--brand)] hover:text-[var(--brand)]"
-                          onClick={() => updateLine(item.id_producto, item.quantity + 1)}
-                        >
-                          +
-                        </button>
-                        <button
-                          type="button"
-                          className="ms-auto inline-flex min-h-[2.75rem] items-center rounded-xl px-3 text-sm font-semibold text-[#b3261e] transition hover:bg-[#ffe4e0]"
-                          onClick={() => updateLine(item.id_producto, 0)}
-                        >
-                          Quitar
-                        </button>
-                      </div>
+                  <div className="mt-4 rounded-[1.35rem] border border-[var(--app-border)] bg-[var(--app-surface-soft)] p-4">
+                    <div className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-2 text-sm text-[var(--app-text-muted)]">
+                      <span>Artículos</span>
+                      <span>{summary.items}</span>
+                      <span>Subtotal</span>
+                      <span>{formatMoney(summary.subtotal)}</span>
                     </div>
-                  ))}
-                </div>
+                    <div className="mt-3 grid grid-cols-[1fr_auto] gap-x-4 gap-y-2 text-[1.05rem] font-bold text-[var(--app-text)]">
+                      <span>Total</span>
+                      <span>{formatMoney(summary.subtotal)}</span>
+                    </div>
+                  </div>
+                </>
               )}
-            </div>
-
-            {ticketSent && (
-              <div className={`alert ${ticketSent.includes('listo') ? 'alert-warning' : 'alert-danger'}`}>
-                {ticketSent}
-              </div>
-            )}
-
-            <div className="surface-card p-4 sm:p-5">
-              <div className="small text-uppercase text-muted fw-semibold mb-3">Resumen</div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '0.5rem 1rem' }}>
-                <span className="text-muted">Articulos</span>
-                <span>{summary.items}</span>
-                <span className="fw-semibold">Total</span>
-                <span className="display-6 fw-semibold">{money(summary.subtotal)}</span>
-              </div>
-              <div className="mt-3 text-sm leading-6 text-[var(--app-text-muted)]">
-                Flujo listo para conectar la creacion real del pedido en backend.
-              </div>
             </div>
           </div>
         </aside>
       </div>
+
+      <ProductCustomizer
+        product={customizerState?.product || null}
+        open={Boolean(customizerState)}
+        title={customizerState?.lineKey ? 'Editar producto del ticket' : 'Personalizar producto'}
+        submitLabel={customizerState?.lineKey ? 'Guardar cambios' : 'Agregar al ticket'}
+        initialConfig={customizerState?.initialConfig || null}
+        onClose={() => setCustomizerState(null)}
+        onSubmit={(config) => {
+          setTicket((current) => upsertTicketLine(
+            current,
+            customizerState.product.id_producto,
+            config,
+            customizerState.lineKey || null
+          ));
+          setTicketSent('');
+          setCustomizerState(null);
+        }}
+      />
     </AppShell>
   );
 }

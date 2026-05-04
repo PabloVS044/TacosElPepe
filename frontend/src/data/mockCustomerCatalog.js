@@ -6,7 +6,7 @@ export const mockCustomerCatalog = [
     descripcion: 'Cerdo marinado, piña, cebolla y cilantro fresco.',
     precio: 12,
     destacado: 'Favorito',
-    icono: '🌮',
+    icono: 'shop',
   },
   {
     id: 'cliente-2',
@@ -14,7 +14,7 @@ export const mockCustomerCatalog = [
     nombre: 'Taco de Bistec',
     descripcion: 'Res asada a la plancha con cebolla blanca y limón.',
     precio: 14,
-    icono: '🥩',
+    icono: 'hexagon',
   },
   {
     id: 'cliente-3',
@@ -22,7 +22,7 @@ export const mockCustomerCatalog = [
     nombre: 'Taco Vegetariano',
     descripcion: 'Frijol, queso, aguacate y salsa verde.',
     precio: 10,
-    icono: '🥑',
+    icono: 'squareCircle',
   },
   {
     id: 'cliente-4',
@@ -31,7 +31,7 @@ export const mockCustomerCatalog = [
     descripcion: '3 tacos al pastor y una horchata grande.',
     precio: 40,
     destacado: 'Top ventas',
-    icono: '🎉',
+    icono: 'box',
   },
   {
     id: 'cliente-5',
@@ -39,7 +39,7 @@ export const mockCustomerCatalog = [
     nombre: 'Combo Familiar',
     descripcion: '10 tacos variados y 4 bebidas para compartir.',
     precio: 130,
-    icono: '👨‍👩‍👧‍👦',
+    icono: 'people',
   },
   {
     id: 'cliente-6',
@@ -47,7 +47,7 @@ export const mockCustomerCatalog = [
     nombre: 'Horchata Grande',
     descripcion: 'Agua de horchata cremosa servida bien fría.',
     precio: 8,
-    icono: '🥤',
+    icono: 'cup',
   },
   {
     id: 'cliente-7',
@@ -55,7 +55,7 @@ export const mockCustomerCatalog = [
     nombre: 'Agua de Jamaica',
     descripcion: 'Jamaica natural con hielo y un toque cítrico.',
     precio: 8,
-    icono: '🍷',
+    icono: 'cup',
   },
   {
     id: 'cliente-8',
@@ -63,7 +63,7 @@ export const mockCustomerCatalog = [
     nombre: 'Limonada con Chía',
     descripcion: 'Refrescante, ligera y ideal para acompañar tacos.',
     precio: 9,
-    icono: '🍋',
+    icono: 'circle',
   },
   {
     id: 'cliente-9',
@@ -71,7 +71,7 @@ export const mockCustomerCatalog = [
     nombre: 'Flan Napolitano',
     descripcion: 'Flan casero suave con caramelo tradicional.',
     precio: 15,
-    icono: '🍮',
+    icono: 'gift',
   },
   {
     id: 'cliente-10',
@@ -79,6 +79,6 @@ export const mockCustomerCatalog = [
     nombre: 'Churros con Chocolate',
     descripcion: 'Churros crujientes con salsa tibia de chocolate.',
     precio: 18,
-    icono: '🍫',
+    icono: 'gift',
   },
 ];

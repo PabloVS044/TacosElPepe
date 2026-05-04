@@ -71,82 +71,38 @@ El `.env` ya tiene valores por defecto listos para desarrollo:
 POSTGRES_USER=proy2
 POSTGRES_PASSWORD=secret
 POSTGRES_DB=tacospepe
-POSTGRES_PORT=5433
+POSTGRES_PORT=5432
 
 DB_HOST=localhost
+DB_PORT=5432
 PORT=3000
 SESSION_SECRET=tacos_el_pepe_dev_secret_2024
+FRONTEND_URL=http://localhost:5173
+FRONTEND_PORT=5173
 ```
 
-### 2. Levantar la base de datos
+### 2. Levantar todo el proyecto
 
 ```bash
-docker compose up -d
+docker compose up
 ```
 
-Esto crea el contenedor PostgreSQL y ejecuta automáticamente los scripts SQL:
-- `estructura_bd.sql` — crea todas las tablas
-- `indices.sql` — crea índices de rendimiento
-- `datos_prueba.sql` — inserta datos de prueba
+Esto construye y levanta los 3 servicios:
+- `db` — PostgreSQL 16 con scripts de inicialización automáticos
+- `backend` — API Express disponible dentro de la red de Docker en `http://backend:3000`
+- `frontend` — React + Vite en `http://localhost:5173`
 
-Verifica que el contenedor esté listo:
+Durante el arranque:
+- PostgreSQL ejecuta `estructura_bd.sql`, `indices.sql`, `views.sql` y `datos_prueba.sql`
+- El backend espera a que la base esté lista
+- El backend corrige automáticamente los hashes placeholder de empleados para dejar el login usable sin pasos manuales
+- El frontend publica la app y proxya `/api` hacia el backend interno
+
+Puedes verificar el estado con:
 
 ```bash
 docker compose ps
 ```
-
-### 3. Instalar dependencias del backend
-
-```bash
-cd backend
-npm install
-```
-
-### 4. Asignar contraseñas reales a los empleados
-
-Los datos de prueba tienen hashes placeholder. Ejecuta esto una sola vez:
-
-```bash
-cd backend
-npm run seed
-```
-
-Esto actualiza los 28 empleados de prueba para que puedan iniciar sesión.
-
-### 5. Iniciar el backend
-
-```bash
-cd backend
-npm start
-```
-
-La API estará disponible en: **http://localhost:3000**
-
-Para desarrollo con recarga automática:
-
-```bash
-npm run dev
-```
-
-### 6. Instalar dependencias del frontend
-
-```bash
-cd frontend
-npm install
-```
-
-### 7. Iniciar el frontend
-
-En otra terminal:
-
-```bash
-cd frontend
-npm run dev
-```
-
-La aplicación estará disponible en: **http://localhost:5173**
-
-El frontend se conecta al backend mediante el proxy de Vite — ambos procesos deben estar corriendo.
 
 ## Credenciales de prueba
 
@@ -157,7 +113,7 @@ El frontend se conecta al backend mediante el proxy de Vite — ambos procesos d
 | carlos.hernandez@tacospepe.gt | admin123 | cajero |
 | roberto.villalobos@tacospepe.gt | admin123 | cocinero |
 
-Todos los empleados usan la contraseña `admin123` después de correr `npm run seed`.
+Todos los empleados usan la contraseña `admin123` después del arranque de Docker.
 
 ## Funcionalidades
 
@@ -202,9 +158,7 @@ Las consultas de los reportes de la app se ejecutan directamente desde el backen
 
 ```bash
 docker compose down -v
-docker compose up -d
-# Esperar que el contenedor esté listo, luego:
-cd backend && npm run seed
+docker compose up
 ```
 
 ## Conexión directa a la base de datos
@@ -212,3 +166,25 @@ cd backend && npm run seed
 ```bash
 docker compose exec db psql -U proy2 -d tacospepe
 ```
+
+## Desarrollo local opcional
+
+Si quieres correr frontend y backend fuera de Docker:
+
+```bash
+cd backend
+npm install
+npm start
+```
+
+En otra terminal:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Si cambias `POSTGRES_PORT` para publicar la base en otro puerto, ajusta también `DB_PORT`.
+Si `PORT` o `FRONTEND_PORT` ya están ocupados en tu máquina, cambia esas variables en `.env`.
+Si cambias `FRONTEND_PORT`, ajusta también `FRONTEND_URL`.

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import AppShell from '../../components/AppShell';
 import EmptyState from '../../components/EmptyState';
+import Icon from '../../components/Icon';
 import LoadingScreen from '../../components/LoadingScreen';
 import StatusBadge from '../../components/StatusBadge';
 import { api } from '../../api/api';
@@ -360,7 +361,7 @@ export default function StockCenter() {
                               onClick={() => removeLine(index)}
                               disabled={form.detalles.length === 1}
                             >
-                              <i className="bi bi-trash" />
+                              <Icon name="trash" className="h-4 w-4" />
                             </button>
                           </div>
                         </div>

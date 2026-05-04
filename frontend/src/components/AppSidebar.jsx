@@ -1,5 +1,6 @@
 import { memo, useCallback } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
+import Icon from './Icon';
 import { useAuth } from '../context/AuthContext';
 import { getRoleHomePath } from '../utils/roleHome';
 
@@ -18,14 +19,14 @@ const NAV_ITEMS = [
   {
     to: '/dashboard',
     label: 'Dashboard',
-    icon: 'grid-1x2',
+    icon: 'grid',
     roles: ['admin', 'cajero'],
     match: (pathname) => pathname === '/dashboard',
   },
   {
     to: '/pos',
     label: 'POS',
-    icon: 'display',
+    icon: 'terminal',
     roles: ['admin', 'cajero'],
     match: (pathname) => pathname === '/pos',
   },
@@ -39,35 +40,35 @@ const NAV_ITEMS = [
   {
     to: '/productos',
     label: 'Productos',
-    icon: 'cup-hot',
+    icon: 'cupHot',
     roles: ['admin'],
     match: (pathname) => matchesCrudSection(pathname, '/productos'),
   },
   {
     to: '/insumos',
     label: 'Insumos',
-    icon: 'box-seam',
+    icon: 'box',
     roles: ['admin'],
     match: (pathname) => matchesCrudSection(pathname, '/insumos'),
   },
   {
     to: '/insumos/reabastecer',
     label: 'Reabastecer',
-    icon: 'cart-plus',
+    icon: 'bagCheck',
     roles: ['admin'],
     match: (pathname) => pathname.startsWith('/insumos/reabastecer'),
   },
   {
     to: '/reportes',
     label: 'Reportes',
-    icon: 'bar-chart',
+    icon: 'chart',
     roles: ['admin', 'cajero'],
     match: (pathname) => pathname.startsWith('/reportes'),
   },
   {
     to: '/analitica',
     label: 'Analítica SQL',
-    icon: 'diagram-3',
+    icon: 'nodes',
     roles: ['admin', 'cajero'],
     match: (pathname) => pathname === '/analitica',
   },
@@ -96,7 +97,9 @@ function AppSidebar() {
     <aside className="sticky top-0 z-30 flex h-auto w-full flex-col border-b border-[var(--app-border)] bg-white/92 p-5 backdrop-blur lg:fixed lg:inset-y-0 lg:left-0 lg:z-40 lg:h-screen lg:w-[280px] lg:overflow-y-auto lg:border-b-0 lg:shadow-[inset_-1px_0_0_var(--app-border)]">
       <div className="mb-4 border-b border-[var(--app-border)] pb-4">
         <Link to={getRoleHomePath(user?.rol)} className="flex items-center gap-4 no-underline">
-          <span className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--brand)] text-xl text-white shadow-[var(--shadow-soft)]">🌮</span>
+          <span className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--brand)] text-xl text-white shadow-[var(--shadow-soft)]">
+            <Icon name="shop" className="h-6 w-6" />
+          </span>
           <div>
             <div className="font-semibold text-[var(--app-text)]">Tacos El Pepe</div>
             <div className="text-[0.72rem] font-semibold uppercase tracking-[0.12em] text-[var(--app-text-muted)]">Operación</div>
@@ -119,7 +122,7 @@ function AppSidebar() {
                   : 'text-[var(--app-text-muted)] hover:bg-[var(--app-surface-soft)] hover:text-[var(--brand)]',
               ].join(' ')}
             >
-              <i className={`bi bi-${item.icon}`} />
+              <Icon name={item.icon} className="h-5 w-5" />
               <span>{item.label}</span>
             </Link>
           );
@@ -129,14 +132,14 @@ function AppSidebar() {
       <div className="mt-4 border-t border-[var(--app-border)] pt-4">
         <button
           type="button"
-          className="btn btn-brand-outline mb-2 w-100"
+          className="app-button app-button-secondary mb-2 w-full"
           onClick={handleClientPortal}
         >
-          <i className="bi bi-shop me-2" />
+          <Icon name="shop" className="h-5 w-5" />
           Portal Cliente
         </button>
-        <button type="button" className="btn btn-outline-secondary w-100" onClick={handleLogout}>
-          <i className="bi bi-box-arrow-right me-2" />
+        <button type="button" className="app-button app-button-neutral w-full" onClick={handleLogout}>
+          <Icon name="logout" className="h-5 w-5" />
           Cerrar sesión
         </button>
       </div>

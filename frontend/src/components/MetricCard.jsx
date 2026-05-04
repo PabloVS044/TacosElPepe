@@ -1,3 +1,5 @@
+import Icon from './Icon';
+
 const TONE_CLASSES = {
   primary: 'bg-rose-100 text-rose-800',
   warning: 'bg-amber-100 text-amber-700',
@@ -13,9 +15,9 @@ export default function MetricCard({ label, value, hint, icon, tone = 'primary' 
     <div className="h-full rounded-[1.5rem] border border-[var(--app-border)] bg-white p-5 shadow-[var(--shadow-soft)]">
       <div className="flex items-start justify-between gap-3">
         <div className={`metric-icon ${toneClass}`}>
-            <i className={`bi bi-${icon}`} />
+          <Icon name={icon} className="h-5 w-5" />
         </div>
-        {hint && <span className="small text-muted text-end">{hint}</span>}
+        {hint && <span className="text-right text-xs font-medium text-[var(--app-text-muted)]">{hint}</span>}
       </div>
       <div className="mt-4 text-[0.76rem] font-semibold uppercase tracking-[0.12em] text-[var(--app-text-muted)]">
         {label}
