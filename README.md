@@ -90,12 +90,57 @@ TacosElPepe/
 └── README.md
 ```
 
+## Requisitos
+
+### Recomendado: ejecución con Docker
+
+- Docker con soporte para `docker compose`
+- Git
+- Puertos libres `5173` y `5433` en la máquina host
+
+### Windows 10/11
+
+- Docker Desktop instalado
+- WSL 2 habilitado e integrado con Docker Desktop
+- Ejecutar los comandos desde PowerShell o Git Bash
+
+### macOS
+
+- Docker Desktop para Mac instalado
+- Terminal.app o iTerm2
+
+### Linux
+
+- Docker Engine instalado
+- Docker Compose plugin instalado
+- Usuario con permisos para usar Docker, o ejecutar comandos con `sudo`
+
+### Desarrollo local opcional
+
+- Node.js 20+ recomendado
+- `npm`
+- PostgreSQL local o el contenedor `db` del proyecto
+
 ## Configuración inicial
 
 ### 1. Variables de entorno
 
+Linux o macOS:
+
 ```bash
 cp .env.example .env
+```
+
+Windows PowerShell:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+Windows CMD:
+
+```bat
+copy .env.example .env
 ```
 
 El `.env` ya tiene valores por defecto listos para desarrollo:
@@ -117,13 +162,18 @@ FRONTEND_PORT=5173
 ### 2. Levantar todo el proyecto
 
 ```bash
-docker compose up
+docker compose up --build
 ```
 
 Esto construye y levanta los 3 servicios:
 - `db` — PostgreSQL 16 con scripts de inicialización automáticos
 - `backend` — API Express disponible dentro de la red de Docker en `http://backend:3000`
 - `frontend` — React + Vite en `http://localhost:5173`
+
+Notas por sistema:
+- En Windows y macOS asegúrate de tener Docker Desktop abierto antes de correr el comando.
+- En Linux, si `docker compose` responde con permisos insuficientes, usa `sudo docker compose up --build` o agrega tu usuario al grupo `docker`.
+- Después de la primera construcción puedes usar `docker compose up` sin `--build` mientras no cambien dependencias o Dockerfiles.
 
 Durante el arranque:
 - PostgreSQL ejecuta `estructura_bd.sql`, `indices.sql`, `views.sql` y `datos_prueba.sql`
@@ -136,6 +186,12 @@ Puedes verificar el estado con:
 ```bash
 docker compose ps
 ```
+
+## Accesos después del arranque
+
+- App web: `http://localhost:5173`
+- Base de datos desde DBeaver/psql en el host: `localhost:5433`
+- Base de datos dentro de Docker: host `db`, puerto `5432`
 
 ## Credenciales de prueba
 
@@ -222,7 +278,7 @@ docker compose exec db psql -U proy2 -d tacospepe
 
 ## Desarrollo local opcional
 
-Si quieres correr frontend y backend fuera de Docker:
+Si quieres correr frontend y backend fuera de Docker, los comandos son los mismos en Linux, macOS y Windows usando PowerShell o Git Bash:
 
 ```bash
 cd backend
@@ -244,6 +300,12 @@ Si levantaste la base sin pasar por el contenedor `backend`, ejecuta una vez:
 cd backend
 npm run seed
 ```
+
+Para este modo:
+- deja la base Docker levantada con `docker compose up db`
+- usa `DB_HOST=localhost` y `DB_PORT=5433` en `.env`
+- el backend local corre en `http://localhost:3000`
+- el frontend local corre en `http://localhost:5173`
 
 Si cambias `POSTGRES_PORT` para publicar la base en otro puerto, ajusta también `DB_PORT`.
 Si `PORT` o `FRONTEND_PORT` ya están ocupados en tu máquina, cambia esas variables en `.env`.
