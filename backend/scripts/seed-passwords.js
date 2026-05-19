@@ -1,21 +1,24 @@
-const { DEFAULT_EMPLOYEE_PASSWORD, createReadyClient, syncEmployeePasswords } = require('./runtime-helpers');
+const { DEFAULT_EMPLOYEE_PASSWORD, createReadyClient } = require('./runtime-helpers');
 
 async function seedPasswords() {
   const client = await createReadyClient();
 
   try {
-    const updated = await syncEmployeePasswords(client, {
-      forceAll: true,
-      password: DEFAULT_EMPLOYEE_PASSWORD,
-    });
+    const result = await client.query(`
+      SELECT email, rol
+      FROM empleado
+      WHERE rol IN ('admin', 'cajero', 'cocinero', 'inventario', 'analista')
+      ORDER BY id_empleado
+      LIMIT 5
+    `);
 
-    console.log(`Contraseña actualizada para ${updated} empleado(s).`);
+    console.log('Las contraseñas de prueba ya vienen precargadas desde datos_prueba.sql.');
     console.log('');
     console.log('Credenciales de prueba:');
-    console.log('  Email:      jose.perez@tacospepe.gt  (admin)');
-    console.log(`  Contraseña: ${DEFAULT_EMPLOYEE_PASSWORD}`);
-    console.log('');
-    console.log(`Cualquier empleado usa la misma contraseña: ${DEFAULT_EMPLOYEE_PASSWORD}`);
+    result.rows.forEach((row) => {
+      console.log(`  ${row.email}  (${row.rol})`);
+    });
+    console.log(`  Contraseña para todos: ${DEFAULT_EMPLOYEE_PASSWORD}`);
   } finally {
     await client.end();
   }

@@ -16,16 +16,16 @@ function parseInsumoPayload(payload = {}) {
   return [idProveedor, nombre, unidadMedida, stockActual, stockMinimo, costoUnitario];
 }
 
-async function listSuppliers() {
-  return insumoModel.listSuppliers();
+async function listSuppliers(executor) {
+  return insumoModel.listSuppliers(executor);
 }
 
-async function listInsumos() {
-  return insumoModel.listInsumos();
+async function listInsumos(executor) {
+  return insumoModel.listInsumos(executor);
 }
 
-async function getInsumo(idInsumo) {
-  const insumo = await insumoModel.findInsumoById(Number(idInsumo));
+async function getInsumo(idInsumo, executor) {
+  const insumo = await insumoModel.findInsumoById(Number(idInsumo), executor);
   if (!insumo) {
     throw new AppError(404, 'Insumo no encontrado.');
   }
@@ -33,9 +33,9 @@ async function getInsumo(idInsumo) {
   return insumo;
 }
 
-async function createInsumo(payload) {
+async function createInsumo(payload, executor) {
   try {
-    return await insumoModel.createInsumo(parseInsumoPayload(payload));
+    return await insumoModel.createInsumo(parseInsumoPayload(payload), executor);
   } catch (error) {
     if (error.code === '23505') {
       throw new AppError(409, 'Ya existe un insumo con ese nombre.');
@@ -45,9 +45,9 @@ async function createInsumo(payload) {
   }
 }
 
-async function updateInsumo(idInsumo, payload) {
+async function updateInsumo(idInsumo, payload, executor) {
   try {
-    const insumo = await insumoModel.updateInsumo(Number(idInsumo), parseInsumoPayload(payload));
+    const insumo = await insumoModel.updateInsumo(Number(idInsumo), parseInsumoPayload(payload), executor);
     if (!insumo) {
       throw new AppError(404, 'Insumo no encontrado.');
     }
@@ -62,9 +62,9 @@ async function updateInsumo(idInsumo, payload) {
   }
 }
 
-async function deleteInsumo(idInsumo) {
+async function deleteInsumo(idInsumo, executor) {
   try {
-    const deletedRows = await insumoModel.deleteInsumo(Number(idInsumo));
+    const deletedRows = await insumoModel.deleteInsumo(Number(idInsumo), executor);
     if (deletedRows === 0) {
       throw new AppError(404, 'Insumo no encontrado.');
     }

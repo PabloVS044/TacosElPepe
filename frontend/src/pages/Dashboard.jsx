@@ -56,25 +56,29 @@ export default function Dashboard() {
   const topProducts = ventas.slice(0, 5);
 
   const quickActions = useMemo(() => {
-    if (user?.rol === 'cocinero') {
+    if (user?.rol === 'analista') {
       return [
-        { to: '/pedidos', label: 'Ver pedidos activos', icon: 'receipt' },
+        { to: '/reportes', label: 'Ir a reportes', icon: 'chart' },
+        { to: '/analitica', label: 'Explorar analítica SQL', icon: 'nodes' },
       ];
     }
 
-    const actions = [
-      { to: '/pos', label: 'Abrir POS', icon: 'terminal' },
-      { to: '/pedidos', label: 'Monitor de pedidos', icon: 'receipt' },
-    ];
-
-    if (user?.rol === 'admin') {
-      actions.push(
-        { to: '/insumos/reabastecer', label: 'Reabastecer insumos', icon: 'bagCheck' },
+    if (user?.rol === 'cajero') {
+      return [
+        { to: '/pos', label: 'Abrir POS', icon: 'terminal' },
+        { to: '/pedidos', label: 'Monitor de pedidos', icon: 'receipt' },
         { to: '/reportes', label: 'Ir a reportes', icon: 'chart' },
-      );
+        { to: '/analitica', label: 'Explorar analítica SQL', icon: 'nodes' },
+      ];
     }
 
-    return actions;
+    return [
+      { to: '/pos', label: 'Abrir POS', icon: 'terminal' },
+      { to: '/pedidos', label: 'Monitor de pedidos', icon: 'receipt' },
+      { to: '/insumos/reabastecer', label: 'Reabastecer insumos', icon: 'bagCheck' },
+      { to: '/reportes', label: 'Ir a reportes', icon: 'chart' },
+      { to: '/analitica', label: 'Explorar analítica SQL', icon: 'nodes' },
+    ];
   }, [user?.rol]);
 
   if (loading) return <LoadingScreen message="Armando el dashboard..." />;
@@ -248,7 +252,9 @@ export default function Dashboard() {
                 <div className="text-[0.74rem] font-semibold uppercase tracking-[0.14em] text-[var(--app-text-muted)]">Insumos críticos</div>
                 <h2 className="text-2xl font-bold text-[var(--app-text)]">Stock a vigilar</h2>
               </div>
-              <Link to="/insumos/reabastecer" className="app-button app-button-secondary app-button-sm">Reabastecer</Link>
+              {user?.rol === 'admin' && (
+                <Link to="/insumos/reabastecer" className="app-button app-button-secondary app-button-sm">Reabastecer</Link>
+              )}
             </div>
 
             <div className="grid gap-3">

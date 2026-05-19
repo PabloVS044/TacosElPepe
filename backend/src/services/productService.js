@@ -268,44 +268,45 @@ async function syncProductDefinition(idProducto, payload, executor) {
   }
 }
 
-async function listCategories() {
-  return productModel.listCategories();
+async function listCategories(executor) {
+  return productModel.listCategories(executor);
 }
 
-async function listProducts() {
-  return productModel.listProducts();
+async function listProducts(executor) {
+  return productModel.listProducts(executor);
 }
 
-async function getProduct(idProducto) {
-  const product = await productModel.findProductById(Number(idProducto));
+async function getProduct(idProducto, executor) {
+  const product = await productModel.findProductById(Number(idProducto), executor);
   if (!product) {
     throw new AppError(404, 'Producto no encontrado.');
   }
 
-  return hydrateProduct(product);
+  return hydrateProduct(product, executor);
 }
 
-async function createProduct(payload) {
+async function createProduct(payload, executor = null) {
   const normalizedPayload = parseProductPayload(payload);
   validateDefinitionShape(normalizedPayload);
+  const run = async (client) => {
+    await validateCategoryConsistency(normalizedPayload, client);
+
+    const created = await productModel.createProduct([
+      normalizedPayload.id_categoria_producto,
+      normalizedPayload.nombre,
+      normalizedPayload.descripcion,
+      normalizedPayload.precio,
+      normalizedPayload.es_combo,
+      normalizedPayload.disponible,
+    ], client);
+
+    await syncProductDefinition(created.id_producto, normalizedPayload, client);
+    const product = await productModel.findProductById(created.id_producto, client);
+    return hydrateProduct(product, client);
+  };
 
   try {
-    return await withTransaction(async (client) => {
-      await validateCategoryConsistency(normalizedPayload, client);
-
-      const created = await productModel.createProduct([
-        normalizedPayload.id_categoria_producto,
-        normalizedPayload.nombre,
-        normalizedPayload.descripcion,
-        normalizedPayload.precio,
-        normalizedPayload.es_combo,
-        normalizedPayload.disponible,
-      ], client);
-
-      await syncProductDefinition(created.id_producto, normalizedPayload, client);
-      const product = await productModel.findProductById(created.id_producto, client);
-      return hydrateProduct(product, client);
-    });
+    return executor ? await run(executor) : await withTransaction(run);
   } catch (error) {
     if (error.code === '23505') {
       throw new AppError(409, 'Ya existe un producto con ese nombre.');
@@ -322,32 +323,33 @@ async function createProduct(payload) {
   }
 }
 
-async function updateProduct(idProducto, payload) {
+async function updateProduct(idProducto, payload, executor = null) {
   const normalizedPayload = parseProductPayload(payload);
   const numericId = Number(idProducto);
   validateDefinitionShape(normalizedPayload);
+  const run = async (client) => {
+    await validateCategoryConsistency(normalizedPayload, client);
+
+    const updated = await productModel.updateProduct(numericId, [
+      normalizedPayload.id_categoria_producto,
+      normalizedPayload.nombre,
+      normalizedPayload.descripcion,
+      normalizedPayload.precio,
+      normalizedPayload.es_combo,
+      normalizedPayload.disponible,
+    ], client);
+
+    if (!updated) {
+      throw new AppError(404, 'Producto no encontrado.');
+    }
+
+    await syncProductDefinition(numericId, normalizedPayload, client);
+    const product = await productModel.findProductById(numericId, client);
+    return hydrateProduct(product, client);
+  };
 
   try {
-    return await withTransaction(async (client) => {
-      await validateCategoryConsistency(normalizedPayload, client);
-
-      const updated = await productModel.updateProduct(numericId, [
-        normalizedPayload.id_categoria_producto,
-        normalizedPayload.nombre,
-        normalizedPayload.descripcion,
-        normalizedPayload.precio,
-        normalizedPayload.es_combo,
-        normalizedPayload.disponible,
-      ], client);
-
-      if (!updated) {
-        throw new AppError(404, 'Producto no encontrado.');
-      }
-
-      await syncProductDefinition(numericId, normalizedPayload, client);
-      const product = await productModel.findProductById(numericId, client);
-      return hydrateProduct(product, client);
-    });
+    return executor ? await run(executor) : await withTransaction(run);
   } catch (error) {
     if (error.code === '23505') {
       throw new AppError(409, 'Ya existe un producto con ese nombre.');
@@ -364,9 +366,9 @@ async function updateProduct(idProducto, payload) {
   }
 }
 
-async function deleteProduct(idProducto) {
+async function deleteProduct(idProducto, executor) {
   try {
-    const deletedRows = await productModel.deleteProduct(Number(idProducto));
+    const deletedRows = await productModel.deleteProduct(Number(idProducto), executor);
     if (deletedRows === 0) {
       throw new AppError(404, 'Producto no encontrado.');
     }

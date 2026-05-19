@@ -8,7 +8,7 @@ const {
   listOrders,
   updateOrderStatus,
 } = require('../services/orderService');
-const { withTransaction } = require('../utils/transaction');
+const { withRoleTransaction, withTransaction } = require('../utils/transaction');
 
 async function getCatalog(req, res) {
   const client = await pool.connect();
@@ -54,29 +54,19 @@ async function createOnlineOrder(req, res) {
 }
 
 async function getCustomers(req, res) {
-  const client = await pool.connect();
-
-  try {
-    const clientes = await listCustomers(client);
-    res.json({ clientes });
-  } finally {
-    client.release();
-  }
+  const clientes = await withRoleTransaction(req.session.user, (client) => listCustomers(client));
+  res.json({ clientes });
 }
 
 async function listMonitorOrders(req, res) {
-  const client = await pool.connect();
-
-  try {
-    const pedidos = await listOrders(client, { limit: req.query.limit });
-    res.json({ pedidos });
-  } finally {
-    client.release();
-  }
+  const pedidos = await withRoleTransaction(req.session.user, (client) => (
+    listOrders(client, { limit: req.query.limit })
+  ));
+  res.json({ pedidos });
 }
 
 async function createCounterOrder(req, res) {
-  const pedido = await withTransaction((client) => (
+  const pedido = await withRoleTransaction(req.session.user, (client) => (
     createOrder(
       client,
       {
@@ -95,18 +85,14 @@ async function createCounterOrder(req, res) {
 }
 
 async function getOrder(req, res) {
-  const client = await pool.connect();
-
-  try {
-    const pedido = await getOrderDetail(client, Number(req.params.id));
-    res.json({ pedido });
-  } finally {
-    client.release();
-  }
+  const pedido = await withRoleTransaction(req.session.user, (client) => (
+    getOrderDetail(client, Number(req.params.id))
+  ));
+  res.json({ pedido });
 }
 
 async function updateStatus(req, res) {
-  const pedido = await withTransaction((client) => (
+  const pedido = await withRoleTransaction(req.session.user, (client) => (
     updateOrderStatus(
       client,
       Number(req.params.id),

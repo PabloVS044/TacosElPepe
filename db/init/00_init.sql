@@ -5,3 +5,4 @@
 \i /docker-entrypoint-initdb.d/sql/indices.sql
 \i /docker-entrypoint-initdb.d/sql/views.sql
 \i /docker-entrypoint-initdb.d/sql/datos_prueba.sql
+\i /docker-entrypoint-initdb.d/sql/seguridad_roles.sql

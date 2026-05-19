@@ -41,7 +41,11 @@ function canRunTransition(role, transition) {
     return ['en_proceso', 'finalizado'].includes(transition);
   }
 
-  return ['aprobado', 'cancelado', 'en_proceso', 'finalizado', 'entregado'].includes(transition);
+  if (role === 'cajero') {
+    return ['aprobado', 'cancelado', 'entregado'].includes(transition);
+  }
+
+  return false;
 }
 
 export default function OrdersBoard() {

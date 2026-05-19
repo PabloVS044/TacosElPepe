@@ -42,11 +42,25 @@ export default function App() {
 
             <Route
               element={(
-                <ProtectedRoute allowedRoles={['admin', 'cajero', 'cocinero']}>
+                <ProtectedRoute allowedRoles={['admin', 'cajero', 'cocinero', 'inventario', 'analista']}>
                   <BackofficeLayout />
                 </ProtectedRoute>
               )}
             >
+              <Route
+                element={(
+                  <ProtectedRoute allowedRoles={['admin', 'cajero', 'analista']}>
+                    <Outlet />
+                  </ProtectedRoute>
+                )}
+              >
+                <Route path="/dashboard" element={<Dashboard />} />
+                <Route path="/reportes" element={<ReportsHub />} />
+                <Route path="/reportes/ventas" element={<Navigate to="/reportes" replace />} />
+                <Route path="/reportes/diario" element={<Navigate to="/reportes" replace />} />
+                <Route path="/analitica" element={<SqlInsights />} />
+              </Route>
+
               <Route
                 element={(
                   <ProtectedRoute allowedRoles={['admin', 'cajero']}>
@@ -54,15 +68,18 @@ export default function App() {
                   </ProtectedRoute>
                 )}
               >
-                <Route path="/dashboard" element={<Dashboard />} />
                 <Route path="/pos" element={<PosTerminal />} />
-                <Route path="/reportes" element={<ReportsHub />} />
-                <Route path="/reportes/ventas" element={<Navigate to="/reportes" replace />} />
-                <Route path="/reportes/diario" element={<Navigate to="/reportes" replace />} />
-                <Route path="/analitica" element={<SqlInsights />} />
               </Route>
 
-              <Route path="/pedidos" element={<OrdersBoard />} />
+              <Route
+                element={(
+                  <ProtectedRoute allowedRoles={['admin', 'cajero', 'cocinero']}>
+                    <Outlet />
+                  </ProtectedRoute>
+                )}
+              >
+                <Route path="/pedidos" element={<OrdersBoard />} />
+              </Route>
 
               <Route
                 element={(
@@ -74,6 +91,15 @@ export default function App() {
                 <Route path="/productos" element={<ProductosList />} />
                 <Route path="/productos/nuevo" element={<ProductoForm />} />
                 <Route path="/productos/:id/editar" element={<ProductoForm />} />
+              </Route>
+
+              <Route
+                element={(
+                  <ProtectedRoute allowedRoles={['admin', 'inventario']}>
+                    <Outlet />
+                  </ProtectedRoute>
+                )}
+              >
                 <Route path="/insumos" element={<InsumosList />} />
                 <Route path="/insumos/nuevo" element={<InsumoForm />} />
                 <Route path="/insumos/:id/editar" element={<InsumoForm />} />

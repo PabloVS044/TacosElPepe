@@ -861,6 +861,26 @@ function getAllowedTransitions(currentStatus) {
   return transitions[currentStatus] || [];
 }
 
+function getAllowedTransitionsForRole(currentStatus, role) {
+  if (role === 'admin') {
+    return getAllowedTransitions(currentStatus);
+  }
+
+  const transitionsByRole = {
+    cajero: {
+      pendiente: ['aprobado', 'cancelado'],
+      aprobado: ['cancelado'],
+      finalizado: ['entregado'],
+    },
+    cocinero: {
+      aprobado: ['en_proceso'],
+      en_proceso: ['finalizado'],
+    },
+  };
+
+  return transitionsByRole[role]?.[currentStatus] || [];
+}
+
 async function updateOrderStatus(client, idPedido, nextStatus, actor = null) {
   const normalizedStatus = String(nextStatus || '').trim();
   const order = await getOrderCore(client, idPedido);
@@ -868,6 +888,11 @@ async function updateOrderStatus(client, idPedido, nextStatus, actor = null) {
 
   if (!allowedTransitions.includes(normalizedStatus)) {
     throw orderError(409, `No se puede cambiar el pedido de "${order.estado}" a "${normalizedStatus}".`);
+  }
+
+  const roleTransitions = getAllowedTransitionsForRole(order.estado, actor?.rol);
+  if (!roleTransitions.includes(normalizedStatus)) {
+    throw orderError(403, 'Tu rol no puede ejecutar esa transición de estado.');
   }
 
   if (normalizedStatus === 'cancelado') {

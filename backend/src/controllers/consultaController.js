@@ -1,37 +1,52 @@
 const consultaService = require('../services/consultaService');
+const { withRoleTransaction } = require('../utils/transaction');
 
 async function getJoinPedidosResumen(req, res) {
-  const datos = await consultaService.getJoinPedidosResumen();
+  const datos = await withRoleTransaction(req.session.user, (client) => (
+    consultaService.getJoinPedidosResumen(client)
+  ));
   res.json({ datos });
 }
 
 async function getJoinComprasResumen(req, res) {
-  const datos = await consultaService.getJoinComprasResumen();
+  const datos = await withRoleTransaction(req.session.user, (client) => (
+    consultaService.getJoinComprasResumen(client)
+  ));
   res.json({ datos });
 }
 
 async function getSubqueryClientesConPagos(req, res) {
-  const datos = await consultaService.getSubqueryClientesConPagos();
+  const datos = await withRoleTransaction(req.session.user, (client) => (
+    consultaService.getSubqueryClientesConPagos(client)
+  ));
   res.json({ datos });
 }
 
 async function getSubqueryProveedoresGasto(req, res) {
-  const datos = await consultaService.getSubqueryProveedoresGasto();
+  const datos = await withRoleTransaction(req.session.user, (client) => (
+    consultaService.getSubqueryProveedoresGasto(client)
+  ));
   res.json({ datos });
 }
 
 async function getSubqueryProductosSinVentas(req, res) {
-  const datos = await consultaService.getSubqueryProductosSinVentas();
+  const datos = await withRoleTransaction(req.session.user, (client) => (
+    consultaService.getSubqueryProductosSinVentas(client)
+  ));
   res.json({ datos });
 }
 
 async function getViewPedidosResumen(req, res) {
-  const datos = await consultaService.getViewPedidosResumen();
+  const datos = await withRoleTransaction(req.session.user, (client) => (
+    consultaService.getViewPedidosResumen(client)
+  ));
   res.json({ datos });
 }
 
 async function getViewStockCritico(req, res) {
-  const datos = await consultaService.getViewStockCritico();
+  const datos = await withRoleTransaction(req.session.user, (client) => (
+    consultaService.getViewStockCritico(client)
+  ));
   res.json({ datos });
 }
 

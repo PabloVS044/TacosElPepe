@@ -1,22 +1,31 @@
 const reporteService = require('../services/reporteService');
+const { withRoleTransaction } = require('../utils/transaction');
 
 async function getVentas(req, res) {
-  const datos = await reporteService.getVentasPorProducto();
+  const datos = await withRoleTransaction(req.session.user, (client) => (
+    reporteService.getVentasPorProducto(client)
+  ));
   res.json({ datos });
 }
 
 async function getDiario(req, res) {
-  const datos = await reporteService.getVentasDiarias();
+  const datos = await withRoleTransaction(req.session.user, (client) => (
+    reporteService.getVentasDiarias(client)
+  ));
   res.json({ datos });
 }
 
 async function getClientesFrecuentes(req, res) {
-  const result = await reporteService.getClientesFrecuentes(req.query.min_pedidos);
+  const result = await withRoleTransaction(req.session.user, (client) => (
+    reporteService.getClientesFrecuentes(req.query.min_pedidos, client)
+  ));
   res.json(result);
 }
 
 async function getRankingProductos(req, res) {
-  const datos = await reporteService.getRankingProductos();
+  const datos = await withRoleTransaction(req.session.user, (client) => (
+    reporteService.getRankingProductos(client)
+  ));
   res.json({ datos });
 }
 

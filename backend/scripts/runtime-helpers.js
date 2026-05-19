@@ -1,7 +1,6 @@
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '../../.env') });
 
-const bcrypt = require('bcryptjs');
 const { Client } = require('pg');
 
 const DEFAULT_EMPLOYEE_PASSWORD = 'admin123';
@@ -19,8 +18,8 @@ function buildConnectionConfig() {
     host: process.env.DB_HOST || 'localhost',
     port: parseInt(process.env.DB_PORT || process.env.POSTGRES_PORT || '5432', 10),
     database: process.env.POSTGRES_DB,
-    user: process.env.POSTGRES_USER,
-    password: process.env.POSTGRES_PASSWORD,
+    user: process.env.DB_USER || process.env.POSTGRES_USER,
+    password: process.env.DB_PASSWORD || process.env.POSTGRES_PASSWORD,
   };
 }
 
@@ -57,35 +56,8 @@ async function createReadyClient(options = {}) {
   throw lastError || new Error('No se pudo preparar la base de datos.');
 }
 
-async function syncEmployeePasswords(client, { forceAll = false, password = DEFAULT_EMPLOYEE_PASSWORD } = {}) {
-  const result = forceAll
-    ? await client.query('SELECT id_empleado FROM empleado ORDER BY id_empleado')
-    : await client.query(`
-        SELECT id_empleado
-        FROM empleado
-        WHERE password_hash IS NULL
-           OR length(password_hash) <> 60
-        ORDER BY id_empleado
-      `);
-
-  const ids = result.rows.map((row) => Number(row.id_empleado));
-
-  if (ids.length === 0) {
-    return 0;
-  }
-
-  const hash = await bcrypt.hash(password, 10);
-  await client.query(
-    'UPDATE empleado SET password_hash = $1 WHERE id_empleado = ANY($2::int[])',
-    [hash, ids]
-  );
-
-  return ids.length;
-}
-
 module.exports = {
   DEFAULT_EMPLOYEE_PASSWORD,
   buildConnectionConfig,
   createReadyClient,
-  syncEmployeePasswords,
 };

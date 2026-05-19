@@ -1,11 +1,12 @@
 const express = require('express');
 const asyncHandler = require('../middleware/asyncHandler');
 const requireAuth = require('../middleware/requireAuth');
+const requireRole = require('../middleware/requireRole');
 const insumoController = require('../controllers/insumoController');
 
 const router = express.Router();
 
-router.use(requireAuth);
+router.use(requireAuth, requireRole(['admin', 'inventario']));
 
 router.get('/proveedores', asyncHandler(insumoController.listSuppliers));
 router.get('/', asyncHandler(insumoController.listInsumos));

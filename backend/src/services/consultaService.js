@@ -1,11 +1,11 @@
 const consultaModel = require('../models/consultaModel');
 
 module.exports = {
-  getJoinPedidosResumen: () => consultaModel.getJoinPedidosResumen(),
-  getJoinComprasResumen: () => consultaModel.getJoinComprasResumen(),
-  getSubqueryClientesConPagos: () => consultaModel.getSubqueryClientesConPagos(),
-  getSubqueryProveedoresGasto: () => consultaModel.getSubqueryProveedoresGasto(),
-  getSubqueryProductosSinVentas: () => consultaModel.getSubqueryProductosSinVentas(),
-  getViewPedidosResumen: () => consultaModel.getViewPedidosResumen(),
-  getViewStockCritico: () => consultaModel.getViewStockCritico(),
+  getJoinPedidosResumen: (executor) => consultaModel.getJoinPedidosResumen(executor),
+  getJoinComprasResumen: (executor) => consultaModel.getJoinComprasResumen(executor),
+  getSubqueryClientesConPagos: (executor) => consultaModel.getSubqueryClientesConPagos(executor),
+  getSubqueryProveedoresGasto: (executor) => consultaModel.getSubqueryProveedoresGasto(executor),
+  getSubqueryProductosSinVentas: (executor) => consultaModel.getSubqueryProductosSinVentas(executor),
+  getViewPedidosResumen: (executor) => consultaModel.getViewPedidosResumen(executor),
+  getViewStockCritico: (executor) => consultaModel.getViewStockCritico(executor),
 };

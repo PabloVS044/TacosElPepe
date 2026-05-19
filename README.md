@@ -6,7 +6,7 @@ Proyecto universitario — Bases de Datos 1.
 ## Stack
 
 - **Base de datos**: PostgreSQL 16 (Docker)
-- **Backend**: Node.js + Express + `pg` (API JSON) — sesiones con `express-session` y contraseñas con `bcryptjs`
+- **Backend**: Node.js + Express + `pg` (API JSON) — sesiones con `express-session`, contraseñas con `bcryptjs` y activación de rol DB con `SET LOCAL ROLE`
 - **Frontend**: React 18 + Vite + React Router v6 + Tailwind CSS 4
 - **Orquestación**: Docker Compose con `db`, `backend` y `frontend`
 - **Arquitectura**: backend por capas (`routes -> controllers -> services -> models -> queries`) y frontend dividido entre portal cliente y backoffice
@@ -19,8 +19,8 @@ TacosElPepe/
 │   ├── Dockerfile
 │   ├── package.json
 │   ├── scripts/
-│   │   ├── ensure-runtime.js     <- espera la BD y prepara credenciales en Docker
-│   │   └── seed-passwords.js     <- reasigna contraseñas en desarrollo local
+│   │   ├── ensure-runtime.js     <- espera la BD y verifica semillas de seguridad
+│   │   └── seed-passwords.js     <- lista credenciales semilla disponibles
 │   └── src/
 │       ├── app.js
 │       ├── server.js
@@ -83,8 +83,10 @@ TacosElPepe/
 │               ├── ReporteVentas.jsx
 │               └── ReporteDiario.jsx
 ├── db/
-│   ├── consultas/                <- joins, subqueries, reportes y transacciones de la Parte II
-│   └── init/sql/                 <- estructura, índices, views y datos de prueba
+│   ├── consultas/                <- consultas auxiliares y verificación SQL
+│   └── init/sql/                 <- estructura, índices, views, roles y datos de prueba
+├── docs/
+│   └── seguridad_roles.md        <- matriz de roles, rutas y permisos DB
 ├── docker-compose.yml
 ├── .env.example
 └── README.md
@@ -146,13 +148,15 @@ copy .env.example .env
 El `.env` ya tiene valores por defecto listos para desarrollo:
 
 ```env
-POSTGRES_USER=proy2
-POSTGRES_PASSWORD=secret
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=postgres
 POSTGRES_DB=tacospepe
 POSTGRES_PORT=5433
 
 DB_HOST=localhost
 DB_PORT=5433
+DB_USER=proy3
+DB_PASSWORD=secret
 PORT=3000
 SESSION_SECRET=G9qW3Lx8Ns2Vb7Km4Pd1Yt6Hr0Cf5Ju9Re3Xa8Mz2Uk7Wp4Dn1Tv6Bh0Qs5Lc8Ef
 FRONTEND_URL=http://localhost:5173
@@ -176,10 +180,17 @@ Notas por sistema:
 - Después de la primera construcción puedes usar `docker compose up` sin `--build` mientras no cambien dependencias o Dockerfiles.
 
 Durante el arranque:
-- PostgreSQL ejecuta `estructura_bd.sql`, `indices.sql`, `views.sql` y `datos_prueba.sql`
+- PostgreSQL ejecuta `estructura_bd.sql`, `indices.sql`, `views.sql`, `datos_prueba.sql` y `seguridad_roles.sql`
 - El backend espera a que la base esté lista
-- El backend corrige automáticamente los hashes placeholder de empleados para dejar el login usable sin pasos manuales
+- Los empleados semilla ya quedan funcionales desde `datos_prueba.sql`
 - El frontend publica la app y proxya `/api` hacia el backend interno
+
+Si ya habías levantado el proyecto antes de estos cambios, elimina el volumen para regenerar roles, usuario técnico y semillas:
+
+```bash
+docker compose down -v
+docker compose up --build
+```
 
 Puedes verificar el estado con:
 
@@ -192,17 +203,27 @@ docker compose ps
 - App web: `http://localhost:5173`
 - Base de datos desde DBeaver/psql en el host: `localhost:5433`
 - Base de datos dentro de Docker: host `db`, puerto `5432`
+- Usuario de aplicación para calificación: `proy3`
+- Contraseña de aplicación para calificación: `secret`
 
 ## Credenciales de prueba
 
 | Email | Contraseña | Rol |
 |-------|-----------|-----|
 | jose.perez@tacospepe.gt | admin123 | admin |
-| maria.gonzalez@tacospepe.gt | admin123 | admin |
 | carlos.hernandez@tacospepe.gt | admin123 | cajero |
 | roberto.villalobos@tacospepe.gt | admin123 | cocinero |
+| noemi.soto@tacospepe.gt | admin123 | inventario |
+| esteban.castro@tacospepe.gt | admin123 | analista |
 
-Todos los empleados usan la contraseña `admin123` después del arranque de Docker.
+Todos los empleados semilla usan la contraseña `admin123`.
+
+## Seguridad y roles
+
+- La autenticación usa sesión HTTP y cada empleado conserva su rol en `req.session.user`.
+- PostgreSQL define exactamente 5 roles de negocio: `rol_admin`, `rol_cajero`, `rol_cocinero`, `rol_inventario`, `rol_analista`.
+- El backend se conecta con el usuario técnico `proy3` y activa el rol DB correcto por request autenticado mediante `SET LOCAL ROLE`.
+- La matriz completa de rutas, vistas y permisos DB está documentada en [docs/seguridad_roles.md](/home/pablo/Documents/Sem5/DB/TacosElPepe/docs/seguridad_roles.md).
 
 ## Funcionalidades
 
@@ -213,7 +234,7 @@ Todos los empleados usan la contraseña `admin123` después del arranque de Dock
 
 ### Autenticación y backoffice
 - Login y logout con sesión persistida por cookie
-- Rutas protegidas y navegación según rol dentro del backoffice
+- Rutas protegidas y navegación según rol dentro del backoffice (`admin`, `cajero`, `cocinero`, `inventario`, `analista`)
 - Dashboard operativo con KPIs, pedidos activos, stock crítico y productos destacados
 
 ### Ventas y pedidos
@@ -267,13 +288,19 @@ Las consultas de los reportes de la app se ejecutan directamente desde el backen
 
 ```bash
 docker compose down -v
-docker compose up
+docker compose up --build
 ```
 
 ## Conexión directa a la base de datos
 
 ```bash
-docker compose exec db psql -U proy2 -d tacospepe
+docker compose exec db psql -U proy3 -d tacospepe
+```
+
+Para ejecutar la verificación reproducible de permisos:
+
+```bash
+docker compose exec -T db psql -U proy3 -d tacospepe < db/consultas/verificacion_roles.sql
 ```
 
 ## Desarrollo local opcional
@@ -294,16 +321,10 @@ npm install
 npm run dev
 ```
 
-Si levantaste la base sin pasar por el contenedor `backend`, ejecuta una vez:
-
-```bash
-cd backend
-npm run seed
-```
-
 Para este modo:
 - deja la base Docker levantada con `docker compose up db`
 - usa `DB_HOST=localhost` y `DB_PORT=5433` en `.env`
+- usa `DB_USER=proy3` y `DB_PASSWORD=secret` en `.env`
 - el backend local corre en `http://localhost:3000`
 - el frontend local corre en `http://localhost:5173`
 

@@ -26,7 +26,7 @@ DROP TYPE IF EXISTS tipo_estado_pago CASCADE;
 DROP TYPE IF EXISTS tipo_movimiento_inv CASCADE;
 DROP TYPE IF EXISTS tipo_modificacion CASCADE;
 
-CREATE TYPE tipo_rol_empleado AS ENUM ('admin', 'cajero', 'cocinero');
+CREATE TYPE tipo_rol_empleado AS ENUM ('admin', 'cajero', 'cocinero', 'inventario', 'analista');
 CREATE TYPE tipo_canal_pedido AS ENUM ('online', 'mostrador');
 CREATE TYPE tipo_estado_pedido AS ENUM (
 'pendiente',
