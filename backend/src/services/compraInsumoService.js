@@ -1,3 +1,4 @@
+const format = require('pg-format');
 const compraInsumoModel = require('../models/compraInsumoModel');
 const { AppError } = require('../utils/appError');
 
@@ -90,18 +91,20 @@ async function createCompraInsumo(client, payload, sessionUser) {
     costo_unitario: d.costo_unitario,
   }));
 
-  const { rows } = await client.query(
-    `SELECT sp_registrar_compra_insumo($1, $2, $3, $4, $5) AS id_compra_insumo`,
-    [
-      compra.id_proveedor,
-      compra.id_empleado,
-      total.toFixed(2),
-      compra.observaciones,
-      JSON.stringify(detalleJson),
-    ]
+  // El stored procedure usa COMMIT/ROLLBACK explícitos, por lo que debe invocarse
+  // con el protocolo simple (sin parámetros $1). pg-format escapa los valores de
+  // forma segura. El parámetro INOUT devuelve el id de la compra creada.
+  const callSql = format(
+    'CALL sp_registrar_compra_insumo(%L, %L, %L, %L, %L, NULL)',
+    compra.id_proveedor,
+    compra.id_empleado,
+    total.toFixed(2),
+    compra.observaciones,
+    JSON.stringify(detalleJson)
   );
 
-  const idCompra = rows[0].id_compra_insumo;
+  const { rows } = await client.query(callSql);
+  const idCompra = rows[0].o_id_compra;
 
   return {
     compra: {

@@ -1,8 +1,10 @@
 const compraInsumoService = require('../services/compraInsumoService');
-const { withRoleTransaction } = require('../utils/transaction');
+const { withRoleCall } = require('../utils/transaction');
 
 async function createCompraInsumo(req, res) {
-  const result = await withRoleTransaction(req.session.user, (client) => (
+  // Usa withRoleCall (sin BEGIN) porque el stored procedure sp_registrar_compra_insumo
+  // gestiona su propia transacción con COMMIT/ROLLBACK explícitos vía CALL.
+  const result = await withRoleCall(req.session.user, (client) => (
     compraInsumoService.createCompraInsumo(client, req.body, req.session.user)
   ));
   res.status(201).json(result);

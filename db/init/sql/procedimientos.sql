@@ -128,30 +128,34 @@ $$;
 
 
 -- ============================================================
--- SP 3: sp_registrar_compra_insumo
+-- SP 3: sp_registrar_compra_insumo  (STORED PROCEDURE)
 -- Registra cabecera, detalle, actualiza stock e inserta
--- movimientos de entrada en una sola transacción.
--- El bloque EXCEPTION realiza ROLLBACK implícito de todas las
--- operaciones del bloque BEGIN ante cualquier error, equivalente
--- a ROLLBACK TO SAVEPOINT creado al inicio del bloque.
+-- movimientos de entrada. Implementa control de transacción
+-- EXPLÍCITO: COMMIT al confirmar y ROLLBACK cuando una regla de
+-- negocio (total inconsistente) no se cumple.
+--
+-- Por ser PROCEDURE (no FUNCTION) puede ejecutar COMMIT/ROLLBACK.
+-- Debe invocarse con CALL fuera de un bloque de transacción.
+-- El parámetro INOUT devuelve el id de la compra creada.
 -- ============================================================
-CREATE OR REPLACE FUNCTION sp_registrar_compra_insumo(
-    IN p_proveedor_id  INT,
-    IN p_empleado_id   INT,
-    IN p_total         NUMERIC,
-    IN p_observaciones TEXT,
-    IN p_detalle       JSONB
-) RETURNS INT
+CREATE OR REPLACE PROCEDURE sp_registrar_compra_insumo(
+    IN    p_proveedor_id  INT,
+    IN    p_empleado_id   INT,
+    IN    p_total         NUMERIC,
+    IN    p_observaciones TEXT,
+    IN    p_detalle       JSONB,
+    INOUT o_id_compra     INT
+)
 LANGUAGE plpgsql AS $$
 DECLARE
-    v_id_compra INT;
-    i           INT;
-    v_n         INT;
-    v_item      JSONB;
+    i            INT;
+    v_n          INT;
+    v_item       JSONB;
+    v_total_calc NUMERIC := 0;
 BEGIN
     INSERT INTO compra_insumo (id_proveedor, id_empleado, fecha, total, observaciones)
     VALUES (p_proveedor_id, p_empleado_id, NOW(), p_total, p_observaciones)
-    RETURNING id_compra_insumo INTO v_id_compra;
+    RETURNING id_compra_insumo INTO o_id_compra;
 
     v_n := jsonb_array_length(p_detalle);
     FOR i IN 0 .. v_n - 1 LOOP
@@ -159,7 +163,7 @@ BEGIN
 
         INSERT INTO compra_insumo_detalle (id_compra_insumo, id_insumo, cantidad, costo_unitario)
         VALUES (
-            v_id_compra,
+            o_id_compra,
             (v_item->>'id_insumo')::INT,
             (v_item->>'cantidad')::NUMERIC,
             (v_item->>'costo_unitario')::NUMERIC
@@ -176,20 +180,27 @@ BEGIN
             (v_item->>'id_insumo')::INT,
             p_empleado_id,
             NULL,
-            v_id_compra,
+            o_id_compra,
             'entrada',
             (v_item->>'cantidad')::NUMERIC,
-            'Compra de insumo #' || v_id_compra::TEXT,
+            'Compra de insumo #' || o_id_compra::TEXT,
             NOW()
         );
+
+        v_total_calc := v_total_calc
+            + ((v_item->>'cantidad')::NUMERIC * (v_item->>'costo_unitario')::NUMERIC);
     END LOOP;
 
-    RETURN v_id_compra;
+    -- Regla de integridad: el total recibido debe coincidir con el calculado.
+    -- Si no cuadra, se revierte TODA la operación con ROLLBACK explícito.
+    IF round(v_total_calc, 2) <> round(p_total, 2) THEN
+        ROLLBACK;
+        RAISE EXCEPTION 'sp_registrar_compra_insumo: total inconsistente (recibido %, calculado %); operación revertida con ROLLBACK.',
+            p_total, v_total_calc;
+    END IF;
 
-EXCEPTION
-    WHEN OTHERS THEN
-        -- ROLLBACK implícito de todas las operaciones del bloque BEGIN.
-        RAISE EXCEPTION 'sp_registrar_compra_insumo: operación revertida — %', SQLERRM;
+    -- Todo correcto: se confirma la transacción de forma explícita.
+    COMMIT;
 END;
 $$;
 

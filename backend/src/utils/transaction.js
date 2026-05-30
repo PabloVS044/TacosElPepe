@@ -31,7 +31,34 @@ async function withRoleTransaction(sessionUser, work) {
   });
 }
 
+// Activa el rol sin abrir una transacción explícita (usa SET ROLE / RESET ROLE).
+// Necesario para invocar stored procedures que ejecutan COMMIT/ROLLBACK con CALL,
+// ya que esas sentencias no se permiten dentro de un bloque de transacción abierto.
+async function withRoleCall(sessionUser, work) {
+  const dbRole = resolveDbRole(sessionUser?.rol);
+
+  if (!dbRole) {
+    throw new AppError(403, 'No tienes permisos para acceder con el rol actual.');
+  }
+
+  const client = await pool.connect();
+
+  try {
+    await client.query(`SET ROLE ${dbRole}`);
+    return await work(client);
+  } finally {
+    try {
+      await client.query('RESET ROLE');
+      client.release();
+    } catch (resetError) {
+      // Si falla el RESET, descarta la conexión para no contaminar el pool.
+      client.release(resetError);
+    }
+  }
+}
+
 module.exports = {
   withTransaction,
   withRoleTransaction,
+  withRoleCall,
 };

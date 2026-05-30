@@ -7,6 +7,7 @@ Proyecto universitario — Bases de Datos 1.
 
 - **Base de datos**: PostgreSQL 16 (Docker)
 - **Backend**: Node.js + Express + `pg` (API JSON) — sesiones con `express-session`, contraseñas con `bcryptjs` y activación de rol DB con `SET LOCAL ROLE`
+- **ORM**: Sequelize 6 sobre PostgreSQL para operaciones CRUD de catálogo e inventario
 - **Frontend**: React 18 + Vite + React Router v6 + Tailwind CSS 4
 - **Orquestación**: Docker Compose con `db`, `backend` y `frontend`
 - **Arquitectura**: backend por capas (`routes -> controllers -> services -> models -> queries`) y frontend dividido entre portal cliente y backoffice
@@ -40,7 +41,8 @@ TacosElPepe/
 │       │   ├── reportes.js       <- ventas, diario, ranking y clientes frecuentes
 │       │   ├── consultas.js      <- joins, subqueries y views expuestos por API
 │       │   └── index.js
-│       ├── services/             <- reglas de negocio y transacciones
+│       ├── services/             <- reglas de negocio, transacciones e invocación de stored procedures
+│       ├── orm/                  <- Sequelize: instancia y modelos (Producto, Insumo, Cliente)
 │       └── utils/                <- errores y utilidades
 ├── frontend/
 │   ├── Dockerfile
@@ -84,9 +86,7 @@ TacosElPepe/
 │               └── ReporteDiario.jsx
 ├── db/
 │   ├── consultas/                <- consultas auxiliares y verificación SQL
-│   └── init/sql/                 <- estructura, índices, views, roles y datos de prueba
-├── docs/
-│   └── seguridad_roles.md        <- matriz de roles, rutas y permisos DB
+│   └── init/sql/                 <- estructura, índices, views, stored procedures, roles y datos de prueba 
 ├── docker-compose.yml
 ├── .env.example
 └── README.md
@@ -180,7 +180,7 @@ Notas por sistema:
 - Después de la primera construcción puedes usar `docker compose up` sin `--build` mientras no cambien dependencias o Dockerfiles.
 
 Durante el arranque:
-- PostgreSQL ejecuta `estructura_bd.sql`, `indices.sql`, `views.sql`, `datos_prueba.sql` y `seguridad_roles.sql`
+- PostgreSQL ejecuta `estructura_bd.sql`, `indices.sql`, `views.sql`, `procedimientos.sql`, `datos_prueba.sql` y `seguridad_roles.sql`
 - El backend espera a que la base esté lista
 - Los empleados semilla ya quedan funcionales desde `datos_prueba.sql`
 - El frontend publica la app y proxya `/api` hacia el backend interno
@@ -223,7 +223,35 @@ Todos los empleados semilla usan la contraseña `admin123`.
 - La autenticación usa sesión HTTP y cada empleado conserva su rol en `req.session.user`.
 - PostgreSQL define exactamente 5 roles de negocio: `rol_admin`, `rol_cajero`, `rol_cocinero`, `rol_inventario`, `rol_analista`.
 - El backend se conecta con el usuario técnico `proy3` y activa el rol DB correcto por request autenticado mediante `SET LOCAL ROLE`.
-- La matriz completa de rutas, vistas y permisos DB está documentada en [docs/seguridad_roles.md](/home/pablo/Documents/Sem5/DB/TacosElPepe/docs/seguridad_roles.md).
+
+## Stored Procedures
+
+Las operaciones críticas del negocio se ejecutan mediante stored procedures definidos en [db/init/sql/procedimientos.sql](db/init/sql/procedimientos.sql) e invocados desde la capa de servicios del backend.
+
+| Stored Procedure | Invocado desde | Descripción |
+|------------------|----------------|-------------|
+| `sp_crear_pedido` | `services/orderService.js` | Crea pedido + pago + items + modificaciones. Usa parámetros `IN`/`OUT` (`o_id_pedido`, `o_total`) y bloque `EXCEPTION` |
+| `sp_descontar_stock_pedido` | `services/orderService.js` | Descuenta inventario y registra movimientos de salida |
+| `sp_registrar_compra_insumo` | `services/compraInsumoService.js` | **PROCEDURE** invocado con `CALL`. Registra compra, actualiza stock e inserta movimientos de entrada con control de transacción explícito: `COMMIT` al confirmar y `ROLLBACK` si el total recibido no coincide con el calculado |
+| `sp_cancelar_pedido` | `services/orderService.js` | Restaura inventario, reembolsa pago y cancela el pedido |
+| `sp_cambiar_estado_pedido` | `services/orderService.js` | Aplica una transición de estado con timestamps y empleado asignado |
+
+- **Parámetros IN/OUT + manejo de excepciones**: `sp_crear_pedido`.
+- **Transacción con ROLLBACK dentro de un SP**: `sp_registrar_compra_insumo` es una `PROCEDURE` con `COMMIT` y `ROLLBACK` explícitos; se invoca con `CALL` desde el backend (sin transacción externa abierta).
+- Los permisos `EXECUTE` se otorgan por rol en [db/init/sql/seguridad_roles.sql](db/init/sql/seguridad_roles.sql).
+
+## ORM (Sequelize)
+
+El ORM está configurado en [backend/src/orm/](backend/src/orm/) y se usa en operaciones CRUD de la aplicación:
+
+| Operación | Modelo | Método Sequelize | Servicio |
+|-----------|--------|------------------|----------|
+| Leer insumo por ID | `Insumo` | `Insumo.findByPk()` | `insumoService.getInsumo` |
+| Crear insumo | `Insumo` | `Insumo.create()` | `insumoService.createInsumo` |
+| Actualizar insumo | `Insumo` | `Insumo.update()` | `insumoService.updateInsumo` |
+| Eliminar producto | `Producto` | `Producto.destroy()` | `productService.deleteProduct` |
+
+Las consultas avanzadas (joins, subqueries, reportes con CTE) se mantienen en SQL explícito, como permite el enunciado.
 
 ## Funcionalidades
 
