@@ -588,71 +588,58 @@ async function createOrder(client, payload, actor = null) {
   const initialStatus = channel === 'mostrador' ? 'aprobado' : 'pendiente';
   const paymentStatus = channel === 'mostrador' ? 'pagado' : 'pendiente';
 
-  const order = await orderModel.createOrder(client, [
-    customerId,
-    channel === 'mostrador' ? actor?.id || null : null,
-    channel,
-    initialStatus,
-    draft.subtotal.toFixed(2),
-    draft.total.toFixed(2),
-    String(payload.notas || payload.customer?.referencia || '').trim() || null,
-    channel === 'mostrador' ? new Date() : null,
-  ]);
+  const itemsJson = draft.items.map((item) => ({
+    id_producto: item.id_producto,
+    cantidad: item.cantidad,
+    precio_unitario: item.precio_unitario.toFixed(2),
+    subtotal_linea: item.subtotal_linea.toFixed(2),
+    modificaciones: [
+      ...item.extras.map((extra) => ({
+        id_extra: extra.id_extra,
+        tipo: 'agregar',
+        descripcion: extra.descripcion,
+        precio_extra: roundMoney(extra.precio * extra.cantidad * item.cantidad).toFixed(2),
+      })),
+      ...item.removals.map((removal) => ({
+        id_extra: null,
+        tipo: 'quitar',
+        descripcion: removal.descripcion,
+        precio_extra: '0.00',
+      })),
+    ],
+  }));
 
-  for (const item of draft.items) {
-    const itemResult = await orderModel.createOrderItem(client, [
-      Number(order.id_pedido),
-      item.id_producto,
-      item.cantidad,
-      item.precio_unitario.toFixed(2),
-      item.subtotal_linea.toFixed(2),
-    ]);
+  const { rows: spRows } = await client.query(
+    `SELECT * FROM sp_crear_pedido($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+    [
+      customerId,
+      channel === 'mostrador' ? actor?.id || null : null,
+      channel,
+      initialStatus,
+      draft.subtotal.toFixed(2),
+      draft.total.toFixed(2),
+      String(payload.notas || payload.customer?.referencia || '').trim() || null,
+      channel === 'mostrador' ? new Date() : null,
+      paymentMethod,
+      paymentStatus,
+      paymentStatus === 'pagado' ? new Date() : null,
+      JSON.stringify(itemsJson),
+    ]
+  );
 
-    const pedidoItemId = Number(itemResult.id_pedido_item);
+  const idPedido = Number(spRows[0].o_id_pedido);
 
-    for (const extra of item.extras) {
-      await orderModel.createOrderItemModification(client, [
-        pedidoItemId,
-        extra.id_extra,
-        'agregar',
-        extra.descripcion,
-        roundMoney(extra.precio * extra.cantidad * item.cantidad).toFixed(2),
-      ]);
-    }
+  const movimientosJson = draft.stockConsumption.map((ingredient) => ({
+    id_insumo: ingredient.id_insumo,
+    cantidad: ingredient.cantidad,
+  }));
 
-    for (const removal of item.removals) {
-      await orderModel.createOrderItemModification(client, [
-        pedidoItemId,
-        null,
-        'quitar',
-        removal.descripcion,
-        0,
-      ]);
-    }
-  }
+  await client.query(
+    `SELECT sp_descontar_stock_pedido($1, $2, $3)`,
+    [idPedido, actor?.id || null, JSON.stringify(movimientosJson)]
+  );
 
-  await orderModel.createPayment(client, [
-    Number(order.id_pedido),
-    paymentMethod,
-    paymentStatus,
-    draft.total.toFixed(2),
-    paymentStatus === 'pagado' ? new Date() : null,
-  ]);
-
-  for (const ingredient of draft.stockConsumption) {
-    await orderModel.decrementStock(client, ingredient.cantidad, ingredient.id_insumo);
-    await orderModel.createInventoryMovement(client, [
-      ingredient.id_insumo,
-      actor?.id || null,
-      Number(order.id_pedido),
-      null,
-      'salida',
-      ingredient.cantidad,
-      `Consumo por pedido #${order.id_pedido}`,
-    ]);
-  }
-
-  return getOrderDetail(client, Number(order.id_pedido));
+  return getOrderDetail(client, idPedido);
 }
 
 async function getOrderCore(client, idPedido) {
@@ -896,70 +883,16 @@ async function updateOrderStatus(client, idPedido, nextStatus, actor = null) {
   }
 
   if (normalizedStatus === 'cancelado') {
-    let consumption = (await orderModel.listOrderInventoryOutputs(client, idPedido)).map((row) => ({
-      id_insumo: Number(row.id_insumo),
-      cantidad: Number(row.cantidad || 0),
-    }));
-
-    // Compatibilidad con pedidos históricos que no tengan salidas registradas por insumo.
-    if (consumption.length === 0) {
-      consumption = await rebuildOrderConsumption(client, idPedido);
-    }
-
-    for (const ingredient of consumption) {
-      await orderModel.incrementStock(client, ingredient.cantidad, ingredient.id_insumo);
-      await orderModel.createInventoryMovement(client, [
-        ingredient.id_insumo,
-        actor?.id || null,
-        idPedido,
-        null,
-        'ajuste',
-        ingredient.cantidad,
-        `Restitución por cancelación del pedido #${idPedido}`,
-      ]);
-    }
-
-    if (order.estado_pago === 'pagado') {
-      await orderModel.updatePaymentStatus(client, 'reembolsado', null, idPedido);
-    }
+    await client.query(
+      `SELECT sp_cancelar_pedido($1, $2)`,
+      [idPedido, actor?.id || null]
+    );
+  } else {
+    await client.query(
+      `SELECT sp_cambiar_estado_pedido($1, $2, $3)`,
+      [idPedido, normalizedStatus, actor?.id || null]
+    );
   }
-
-  const fields = ['estado = $1'];
-  const values = [normalizedStatus];
-  let paramIndex = values.length + 1;
-
-  if (normalizedStatus === 'aprobado') {
-    fields.push(`fecha_aprobado = COALESCE(fecha_aprobado, NOW())`);
-    if (actor?.id) {
-      fields.push(`id_cajero = COALESCE(id_cajero, $${paramIndex})`);
-      values.push(actor.id);
-      paramIndex += 1;
-    }
-  }
-
-  if (normalizedStatus === 'en_proceso' && actor?.id) {
-    fields.push(`id_cocinero = COALESCE(id_cocinero, $${paramIndex})`);
-    values.push(actor.id);
-    paramIndex += 1;
-  }
-
-  if (normalizedStatus === 'finalizado') {
-    fields.push(`fecha_finalizado = COALESCE(fecha_finalizado, NOW())`);
-    if (actor?.id) {
-      fields.push(`id_cocinero = COALESCE(id_cocinero, $${paramIndex})`);
-      values.push(actor.id);
-      paramIndex += 1;
-    }
-  }
-
-  if (normalizedStatus === 'entregado') {
-    fields.push(`fecha_entregado = COALESCE(fecha_entregado, NOW())`);
-    if (order.estado_pago === 'pendiente') {
-      await orderModel.updatePaymentStatus(client, 'pagado', new Date(), idPedido);
-    }
-  }
-
-  await orderModel.updateOrderFields(client, idPedido, fields, values);
 
   return getOrderDetail(client, idPedido);
 }

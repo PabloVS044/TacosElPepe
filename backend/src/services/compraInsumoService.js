@@ -84,37 +84,32 @@ async function createCompraInsumo(client, payload, sessionUser) {
     0
   );
 
-  const insertedCompra = await compraInsumoModel.createCompraInsumo(client, [
-    compra.id_proveedor,
-    compra.id_empleado,
-    total.toFixed(2),
-    compra.observaciones,
-  ]);
+  const detalleJson = compra.detalles.map((d) => ({
+    id_insumo: d.id_insumo,
+    cantidad: d.cantidad,
+    costo_unitario: d.costo_unitario,
+  }));
 
-  for (const detalle of compra.detalles) {
-    await compraInsumoModel.createCompraInsumoDetalle(client, [
-      insertedCompra.id_compra_insumo,
-      detalle.id_insumo,
-      detalle.cantidad,
-      detalle.costo_unitario,
-    ]);
-
-    await compraInsumoModel.increaseInsumoStock(client, detalle.cantidad, detalle.id_insumo);
-
-    await compraInsumoModel.createInventoryEntry(client, [
-      detalle.id_insumo,
+  const { rows } = await client.query(
+    `SELECT sp_registrar_compra_insumo($1, $2, $3, $4, $5) AS id_compra_insumo`,
+    [
+      compra.id_proveedor,
       compra.id_empleado,
-      insertedCompra.id_compra_insumo,
-      detalle.cantidad,
-      `Compra de insumo #${insertedCompra.id_compra_insumo}`,
-    ]);
-  }
+      total.toFixed(2),
+      compra.observaciones,
+      JSON.stringify(detalleJson),
+    ]
+  );
+
+  const idCompra = rows[0].id_compra_insumo;
 
   return {
     compra: {
-      ...insertedCompra,
+      id_compra_insumo: idCompra,
       proveedor: proveedor.nombre,
       id_empleado: compra.id_empleado,
+      total: total.toFixed(2),
+      observaciones: compra.observaciones,
       detalles: compra.detalles,
     },
     message: 'Compra registrada y stock actualizado.',

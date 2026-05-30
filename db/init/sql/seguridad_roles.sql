@@ -132,4 +132,11 @@ TO rol_inventario;
 
 GRANT SELECT ON ALL TABLES IN SCHEMA public TO rol_analista;
 
+-- Permisos de ejecución sobre stored procedures
+GRANT EXECUTE ON FUNCTION sp_crear_pedido(INT, INT, tipo_canal_pedido, tipo_estado_pedido, NUMERIC, NUMERIC, TEXT, TIMESTAMPTZ, tipo_metodo_pago, tipo_estado_pago, TIMESTAMPTZ, JSONB) TO rol_admin, rol_cajero;
+GRANT EXECUTE ON FUNCTION sp_descontar_stock_pedido(INT, INT, JSONB) TO rol_admin, rol_cajero;
+GRANT EXECUTE ON FUNCTION sp_registrar_compra_insumo(INT, INT, NUMERIC, TEXT, JSONB) TO rol_admin, rol_inventario;
+GRANT EXECUTE ON FUNCTION sp_cancelar_pedido(INT, INT) TO rol_admin, rol_cajero;
+GRANT EXECUTE ON FUNCTION sp_cambiar_estado_pedido(INT, tipo_estado_pedido, INT) TO rol_admin, rol_cajero, rol_cocinero;
+
 COMMIT;
