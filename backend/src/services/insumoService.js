@@ -1,4 +1,5 @@
 const insumoModel = require('../models/insumoModel');
+const Insumo = require('../orm/Insumo');
 const { AppError } = require('../utils/appError');
 
 function parseInsumoPayload(payload = {}) {
@@ -13,7 +14,7 @@ function parseInsumoPayload(payload = {}) {
     throw new AppError(400, 'Proveedor, nombre y unidad de medida son obligatorios.');
   }
 
-  return [idProveedor, nombre, unidadMedida, stockActual, stockMinimo, costoUnitario];
+  return { id_proveedor: idProveedor, nombre, unidad_medida: unidadMedida, stock_actual: stockActual, stock_minimo: stockMinimo, costo_unitario: costoUnitario };
 }
 
 async function listSuppliers(executor) {
@@ -25,7 +26,7 @@ async function listInsumos(executor) {
 }
 
 async function getInsumo(idInsumo, executor) {
-  const insumo = await insumoModel.findInsumoById(Number(idInsumo), executor);
+  const insumo = await Insumo.findByPk(Number(idInsumo), { raw: true });
   if (!insumo) {
     throw new AppError(404, 'Insumo no encontrado.');
   }
@@ -35,9 +36,11 @@ async function getInsumo(idInsumo, executor) {
 
 async function createInsumo(payload, executor) {
   try {
-    return await insumoModel.createInsumo(parseInsumoPayload(payload), executor);
+    const data = parseInsumoPayload(payload);
+    const created = await Insumo.create(data);
+    return created.get({ plain: true });
   } catch (error) {
-    if (error.code === '23505') {
+    if (error.name === 'SequelizeUniqueConstraintError') {
       throw new AppError(409, 'Ya existe un insumo con ese nombre.');
     }
 
@@ -47,14 +50,16 @@ async function createInsumo(payload, executor) {
 
 async function updateInsumo(idInsumo, payload, executor) {
   try {
-    const insumo = await insumoModel.updateInsumo(Number(idInsumo), parseInsumoPayload(payload), executor);
-    if (!insumo) {
+    const numericId = Number(idInsumo);
+    const data = parseInsumoPayload(payload);
+    const [count] = await Insumo.update(data, { where: { id_insumo: numericId } });
+    if (count === 0) {
       throw new AppError(404, 'Insumo no encontrado.');
     }
 
-    return insumo;
+    return Insumo.findByPk(numericId, { raw: true });
   } catch (error) {
-    if (error.code === '23505') {
+    if (error.name === 'SequelizeUniqueConstraintError') {
       throw new AppError(409, 'Ya existe un insumo con ese nombre.');
     }
 

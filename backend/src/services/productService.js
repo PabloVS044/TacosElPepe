@@ -1,4 +1,5 @@
 const productModel = require('../models/productModel');
+const Producto = require('../orm/Producto');
 const { AppError } = require('../utils/appError');
 const { withTransaction } = require('../utils/transaction');
 
@@ -368,12 +369,12 @@ async function updateProduct(idProducto, payload, executor = null) {
 
 async function deleteProduct(idProducto, executor) {
   try {
-    const deletedRows = await productModel.deleteProduct(Number(idProducto), executor);
-    if (deletedRows === 0) {
+    const deleted = await Producto.destroy({ where: { id_producto: Number(idProducto) } });
+    if (deleted === 0) {
       throw new AppError(404, 'Producto no encontrado.');
     }
   } catch (error) {
-    if (error.code === '23503') {
+    if (error.name === 'SequelizeForeignKeyConstraintError') {
       throw new AppError(409, 'No se puede eliminar: el producto tiene pedidos, recetas o combos relacionados.');
     }
 

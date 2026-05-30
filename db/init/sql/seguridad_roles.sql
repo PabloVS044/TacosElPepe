@@ -132,6 +132,12 @@ TO rol_inventario;
 
 GRANT SELECT ON ALL TABLES IN SCHEMA public TO rol_analista;
 
+-- Permisos directos a proy3 para operaciones ORM (Sequelize conecta como proy3 sin SET LOCAL ROLE)
+GRANT INSERT, UPDATE, DELETE ON producto TO proy3;
+GRANT USAGE, SELECT ON SEQUENCE producto_id_producto_seq TO proy3;
+GRANT INSERT ON insumo TO proy3;
+GRANT USAGE, SELECT ON SEQUENCE insumo_id_insumo_seq TO proy3;
+
 -- Permisos de ejecución sobre stored procedures
 GRANT EXECUTE ON FUNCTION sp_crear_pedido(INT, INT, tipo_canal_pedido, tipo_estado_pedido, NUMERIC, NUMERIC, TEXT, TIMESTAMPTZ, tipo_metodo_pago, tipo_estado_pago, TIMESTAMPTZ, JSONB) TO rol_admin, rol_cajero;
 GRANT EXECUTE ON FUNCTION sp_descontar_stock_pedido(INT, INT, JSONB) TO rol_admin, rol_cajero;
